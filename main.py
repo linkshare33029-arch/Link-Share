@@ -204,10 +204,6 @@ def request_chat_keyboard(kind: str):
             chat_is_channel=(kind == "channel"),
             request_title=True,
             request_username=True,
-            bot_administrator_rights={
-                "can_invite_users": True,
-                "can_manage_chat": True,
-            },
         ),
     )
     return ReplyKeyboardMarkup(
