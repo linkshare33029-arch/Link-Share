@@ -468,6 +468,14 @@ async def owner_input(message: Message):
         if not text_value:
             await message.answer("Please send text for the caption.")
             return
+        cfg_now = await get_config()
+        caption_limit = 1024 if cfg_now.get("media_file_id") else 4096
+        if len(text_value) > caption_limit:
+            await message.answer(
+                f"Caption is too long. Telegram allows up to {caption_limit} characters "
+                "for the current post format."
+            )
+            return
         entities = message.entities if message.text else message.caption_entities
         await settings.update_one(
             {"_id": "post"},
