@@ -201,13 +201,13 @@ async def send_fresh_link(message: Message, chat_doc):
             kwargs["caption_entities"] = entities
             kwargs["parse_mode"] = None
         else:
-            kwargs["parse_mode"] = ParseMode.HTML
+            kwargs["parse_mode"] = None
         if media_id and media_type == "photo":
             await message.answer_photo(media_id, **kwargs)
         elif media_id and media_type == "animation":
             await message.answer_animation(media_id, **kwargs)
         else:
-            await message.answer(caption, entities=entities, parse_mode=None if entities else ParseMode.HTML,
+            await message.answer(caption, entities=entities, parse_mode=None,
                                  reply_markup=markup)
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
         log.exception("Invite creation or link-post delivery failed for chat %s", chat_doc.get("chat_id"))
@@ -389,6 +389,7 @@ async def settings_callback(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Not allowed", show_alert=True)
         return
+    await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
     await call.answer()
     await show_settings(call.message)
 
