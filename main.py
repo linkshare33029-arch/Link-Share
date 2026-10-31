@@ -110,14 +110,12 @@ async def home_text():
 
 
 async def clear_owner_panels(chat_id: int, owner_id: int):
-    # New slash commands must replace, not edit, the previous owner panel.
+    # Keep old panel IDs until the replacement panel has been sent.
+    old_panel_ids = []
     for key in (f"home:{chat_id}", f"settings:{chat_id}"):
         saved = await ui_state.find_one({"_id": key})
         if saved and saved.get("message_id"):
-            try:
-                await BOT.delete_message(chat_id, saved["message_id"])
-            except TelegramAPIError:
-                pass
+            old_panel_ids.append(saved["message_id"])
         await ui_state.delete_one({"_id": key})
     picker = await ui_state.find_one({"_id": f"picker:{owner_id}"})
     if picker:
@@ -127,11 +125,32 @@ async def clear_owner_panels(chat_id: int, owner_id: int):
             pass
         await ui_state.delete_one({"_id": f"picker:{owner_id}"})
     await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
+    keyboard_notice = None
     try:
-        await BOT.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
+        keyboard_notice = await BOT.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
     except TelegramAPIError:
         pass
+    return old_panel_ids, keyboard_notice
 
+
+async def finish_owner_command(message: Message, old_panel_ids, keyboard_notice=None, keep_panel_id=None):
+    # The fresh panel is already visible; now remove the command and previous panel(s).
+    for old_id in old_panel_ids:
+        if old_id == keep_panel_id:
+            continue
+        try:
+            await BOT.delete_message(message.chat.id, old_id)
+        except TelegramAPIError:
+            pass
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+    if keyboard_notice:
+        try:
+            await BOT.delete_message(message.chat.id, keyboard_notice.message_id)
+        except TelegramAPIError:
+            pass
 
 async def render_home(message: Message, edit_existing=False):
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
@@ -266,8 +285,10 @@ async def start(message: Message):
     if not message.from_user:
         return
     if is_owner(message.from_user.id):
-        await clear_owner_panels(message.chat.id, message.from_user.id)
+        old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
         await render_home(message)
+        fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
+        await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
         return
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
@@ -282,7 +303,7 @@ async def start(message: Message):
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await clear_owner_panels(message.chat.id, message.from_user.id)
+    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
     sent = await message.answer(
         "<b><u>LINKS POST</u></b>\\n\\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
@@ -290,6 +311,7 @@ async def set_command(message: Message):
     )
     await ui_state.update_one({"_id": f"settings:{message.chat.id}"},
         {"$set": {"message_id": sent.message_id}}, upsert=True)
+    await finish_owner_command(message, old_panel_ids, keyboard_notice, sent.message_id)
 
 
 @dp.callback_query(F.data == "home")
@@ -541,8 +563,10 @@ async def cfg_prompt(call: CallbackQuery):
 async def unknown_owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await clear_owner_panels(message.chat.id, message.from_user.id)
+    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
+    fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
+    await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
 
 
 @dp.message()
