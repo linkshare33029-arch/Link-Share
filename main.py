@@ -109,6 +109,30 @@ async def home_text():
             "<i>Select any chat for links delivery. A new link will be used every time to avoid spammers.</i>")
 
 
+async def clear_owner_panels(chat_id: int, owner_id: int):
+    # New slash commands must replace, not edit, the previous owner panel.
+    for key in (f"home:{chat_id}", f"settings:{chat_id}"):
+        saved = await ui_state.find_one({"_id": key})
+        if saved and saved.get("message_id"):
+            try:
+                await BOT.delete_message(chat_id, saved["message_id"])
+            except TelegramAPIError:
+                pass
+        await ui_state.delete_one({"_id": key})
+    picker = await ui_state.find_one({"_id": f"picker:{owner_id}"})
+    if picker:
+        try:
+            await BOT.delete_message(chat_id, picker["prompt_message_id"])
+        except (TelegramAPIError, KeyError):
+            pass
+        await ui_state.delete_one({"_id": f"picker:{owner_id}"})
+    await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
+    try:
+        await BOT.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
+    except TelegramAPIError:
+        pass
+
+
 async def render_home(message: Message, edit_existing=False):
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
     body, markup = await home_text(), main_keyboard(items)
@@ -242,6 +266,7 @@ async def start(message: Message):
     if not message.from_user:
         return
     if is_owner(message.from_user.id):
+        await clear_owner_panels(message.chat.id, message.from_user.id)
         await render_home(message)
         return
     parts = (message.text or "").split(maxsplit=1)
@@ -257,21 +282,9 @@ async def start(message: Message):
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    panel = await ui_state.find_one({"_id": f"settings:{message.chat.id}"})
-    target_id = (panel or {}).get("message_id")
-    if target_id:
-        try:
-            await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\n\n"
-                "<i>Edit caption, media, and button using the buttons below:</i>",
-                chat_id=message.chat.id, message_id=target_id,
-                reply_markup=settings_keyboard(),
-            )
-            return
-        except TelegramBadRequest:
-            pass
+    await clear_owner_panels(message.chat.id, message.from_user.id)
     sent = await message.answer(
-        "<b><u>LINKS POST</u></b>\n\n"
+        "<b><u>LINKS POST</u></b>\\n\\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
         reply_markup=settings_keyboard(),
     )
@@ -522,6 +535,14 @@ async def cfg_prompt(call: CallbackQuery):
             [InlineKeyboardButton(text="Cancel", callback_data="settings")]
         ]),
     )
+
+
+@dp.message(F.text.startswith("/"))
+async def unknown_owner_command(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    await clear_owner_panels(message.chat.id, message.from_user.id)
+    await render_home(message)
 
 
 @dp.message()
