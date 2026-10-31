@@ -182,15 +182,15 @@ async def send_fresh_link(message: Message, chat_doc):
         entities = cfg.get("caption_entities") or None
         media_id, media_type = cfg.get("media_file_id"), cfg.get("media_type")
         if media_id and media_type == "photo":
-            await message.answer_photo(media_id, caption=caption, caption_entities=entities, reply_markup=markup)
+            await message.answer_photo(media_id, caption=caption, caption_entities=entities, parse_mode=None if entities else ParseMode.HTML, reply_markup=markup)
         elif media_id and media_type == "animation":
-            await message.answer_animation(media_id, caption=caption, caption_entities=entities, reply_markup=markup)
+            await message.answer_animation(media_id, caption=caption, caption_entities=entities, parse_mode=None if entities else ParseMode.HTML, reply_markup=markup)
         elif media_id and media_type == "video":
-            await message.answer_video(media_id, caption=caption, caption_entities=entities, reply_markup=markup)
+            await message.answer_video(media_id, caption=caption, caption_entities=entities, parse_mode=None if entities else ParseMode.HTML, reply_markup=markup)
         elif media_id and media_type == "document":
-            await message.answer_document(media_id, caption=caption, caption_entities=entities, reply_markup=markup)
+            await message.answer_document(media_id, caption=caption, caption_entities=entities, parse_mode=None if entities else ParseMode.HTML, reply_markup=markup)
         else:
-            await message.answer(caption, entities=entities, reply_markup=markup)
+            await message.answer(caption, entities=entities, parse_mode=None if entities else ParseMode.HTML, reply_markup=markup)
     except (TelegramBadRequest, TelegramForbiddenError) as e:
         log.exception("Invite creation/send failed for chat %s", chat_doc.get("chat_id"))
         await message.answer("I couldn't create an invite for this chat. Please ask the owner to check that I am an administrator with invite-link permission.")
@@ -258,10 +258,13 @@ async def chat_shared(message: Message):
         panel_id = owner_panels.get(message.chat.id)
         if panel_id:
             try:
-                panel = await BOT.get_message(message.chat.id, panel_id)
-                await render_home(panel)
-            except Exception:
-                pass
+                items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
+                await BOT.edit_message_text(
+                    "<b><u>ROTATION LINKS CHATS</u></b>\\n\\n<i>Select a chat below or add a new one.</i>",
+                    chat_id=message.chat.id, message_id=panel_id, reply_markup=main_keyboard(items)
+                )
+            except TelegramBadRequest as e:
+                log.info("Could not refresh owner panel: %s", e)
     except Exception:
         log.exception("Unable to save selected chat")
         await message.answer("Could not add this chat. Ensure the bot is an admin and try again.", reply_markup=ReplyKeyboardRemove())
@@ -378,10 +381,17 @@ async def owner_input(message: Message):
     except Exception:
         pass
     try:
-        panel = await BOT.get_message(pending["panel_chat_id"], pending["panel_message_id"])
-        await show_settings(panel)
+        cfg = await get_config()
+        body = ("<b>LINKS POST</b>\\n\\n"
+                "<i>Configure the message users receive with their one-minute invite link.</i>\\n\\n"
+                f"Caption: {html.escape(cfg.get('caption', DEFAULT_CAPTION))[:500]}\\n"
+                f"Button: {html.escape(cfg.get('button', DEFAULT_BUTTON))}\\n"
+                f"Media: {'Set' if cfg.get('media_file_id') else 'Not set'}")
+        await BOT.edit_message_text(body, chat_id=pending["panel_chat_id"],
+                                    message_id=pending["panel_message_id"],
+                                    reply_markup=settings_keyboard())
     except Exception:
-        pass
+        log.exception("Could not restore settings panel")
 
 
 @dp.chat_join_request()
