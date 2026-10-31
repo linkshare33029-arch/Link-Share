@@ -294,25 +294,50 @@ async def add_menu(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     await call.answer()
-    await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose the chat type.</i>", add_keyboard())
-
-
-@dp.callback_query(F.data.startswith("pick:"))
-async def pick_chat(call: CallbackQuery):
-    if not is_owner(call.from_user.id):
-        await call.answer("Not allowed", show_alert=True)
-        return
-    kind = call.data.split(":", 1)[1]
-    if kind not in {"channel", "group"}:
-        await call.answer("Invalid chat type", show_alert=True)
-        return
-    await call.answer()
-    await edit_panel(
-        call.message,
-        f"<b>SELECT {kind.upper()}</b>\n\n"
-        "<i>Use Telegram's chat picker below. The bot needs invite-link permission.</i>",
+    await edit_panel(call.message, "<b>ADD CHAT</b>\\n\\n<i>Choose Channel or Group using the keyboard below.</i>", None)
+    prompt = await call.message.answer(
+        "Select chat type:",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="Channel"), KeyboardButton(text="Group")],
+                      [KeyboardButton(text="Back")]],
+            resize_keyboard=True,
+            one_time_keyboard=True,
+        ),
     )
-    await call.message.answer("Choose a chat:", reply_markup=request_chat_keyboard(kind))
+    await ui_state.update_one(
+        {"_id": f"picker:{call.from_user.id}"},
+        {"$set": {"prompt_message_id": prompt.message_id,
+                  "panel_chat_id": call.message.chat.id,
+                  "panel_message_id": call.message.message_id}},
+        upsert=True,
+    )
+
+
+@dp.message(F.text.in_({"Channel", "Group", "Back"}))
+async def picker_choice(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    state = await ui_state.find_one({"_id": f"picker:{message.from_user.id}"})
+    if not state:
+        return
+    if message.text == "Back":
+        try:
+            await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
+        except TelegramAPIError:
+            pass
+        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+        await message.answer("Selection closed.", reply_markup=ReplyKeyboardRemove())
+        await render_home(message)
+        return
+    kind = "channel" if message.text == "Channel" else "group"
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+    await message.answer(
+        f"Choose one {kind} from Telegram's chat picker:",
+        reply_markup=request_chat_keyboard(kind),
+    )
 
 
 @dp.message(F.chat_shared)
@@ -347,15 +372,14 @@ async def chat_shared(message: Message):
         code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
         await chats.insert_one({
-            {"$set": {
-                "chat_id": shared.chat_id,
-                "title": title,
-                "code": code,
-                "username": getattr(chat, "username", None),
-                "is_private": not bool(getattr(chat, "username", None)),
-                "active": True,
-                "created_at": datetime.now(timezone.utc),
-            })
+            "chat_id": shared.chat_id,
+            "title": title,
+            "code": code,
+            "username": getattr(chat, "username", None),
+            "is_private": not bool(getattr(chat, "username", None)),
+            "active": True,
+            "created_at": datetime.now(timezone.utc),
+        })
         await message.answer("Chat added.", reply_markup=ReplyKeyboardRemove())
         await render_home(message)
     except Exception:
@@ -591,10 +615,12 @@ async def revoke_record(record):
             "invite link is expired",
         ))
         if not already_inactive:
+            record["_last_revoke_error"] = f"{type(exc).__name__}: {exc}"
             log.error("Telegram rejected invite revoke for %s: %s", record.get("chat_id"), exc)
             return False
         log.info("Invite is already inactive: %s", exc)
     except TelegramAPIError as exc:
+        record["_last_revoke_error"] = f"{type(exc).__name__}: {exc}"
         log.error("Invite revoke API failure for chat %s: %s", record.get("chat_id"), exc)
         return False
     await issued.update_one(
@@ -626,7 +652,7 @@ async def expire_one_link(record):
                 if latest.get("revoked") or await revoke_record(latest):
                     await issued.delete_one({"_id": record["_id"]})
                     return
-                last_error = "Telegram did not confirm revocation; check service logs for the exact API error."
+                last_error = latest.get("_last_revoke_error", "Telegram did not confirm revocation; no API error text was returned.")
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 log.exception("Expiry attempt %s failed for invite %s", attempt + 1, record.get("invite_link"))
@@ -643,13 +669,28 @@ async def expire_one_link(record):
         try:
             await BOT.send_message(OWNER, details)
         except TelegramAPIError:
-            log.exception("Could not notify owner about failed invite revoke")
+            log.exception("Could not notify owner about failed invite revoke; keeping record for recovery")
+            return
         await issued.delete_one({"_id": record["_id"]})
     except asyncio.CancelledError:
         raise
     finally:
         if expiry_tasks.get(key) is asyncio.current_task():
             expiry_tasks.pop(key, None)
+
+
+async def telegram_webhook(request):
+    secret = request.app.get("webhook_secret")
+    if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
+        raise web.HTTPUnauthorized()
+    try:
+        from aiogram.types import Update
+        update = Update.model_validate(await request.json(), context={"bot": BOT})
+        await dp.feed_update(BOT, update)
+    except Exception:
+        log.exception("Failed to process Telegram webhook update")
+        raise web.HTTPInternalServerError()
+    return web.Response(text="ok")
 
 
 async def health(request):
@@ -685,10 +726,25 @@ async def main():
         async for pending_link in issued.find({"revoked": False}):
             schedule_expiry(pending_link)
         log.info("Link-Share ready as @%s; MongoDB connected; per-link expiry tasks restored.", bot_username)
-        await dp.start_polling(
-            BOT,
-            allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
-        )
+        public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        if public_url:
+            webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
+            app.router.add_post("/telegram/webhook", telegram_webhook)
+            app["webhook_secret"] = webhook_secret
+            await BOT.set_webhook(
+                url=f"{public_url}/telegram/webhook",
+                secret_token=webhook_secret,
+                allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
+                drop_pending_updates=False,
+            )
+            log.info("Telegram webhook enabled; polling disabled to prevent deployment conflicts.")
+            await asyncio.Event().wait()
+        else:
+            log.warning("RENDER_EXTERNAL_URL missing; using polling fallback.")
+            await dp.start_polling(
+                BOT,
+                allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
+            )
     finally:
         for task in list(expiry_tasks.values()):
             task.cancel()
