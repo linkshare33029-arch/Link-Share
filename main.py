@@ -297,6 +297,29 @@ async def remove_chat(call: CallbackQuery):
     await render_home(call.message)
 
 
+@dp.message(Command("set"))
+async def set_command(message: Message):
+    if not is_owner(message.from_user.id):
+        return
+    panel_id = owner_panels.get(message.chat.id)
+    if panel_id:
+        try:
+            cfg = await get_config()
+            body = ("<b>LINKS POST</b>\\n\\n"
+                    "<i>Configure the message users receive with their one-minute invite link.</i>\\n\\n"
+                    f"Caption: {html.escape(cfg.get('caption', DEFAULT_CAPTION))[:500]}\\n"
+                    f"Button: {html.escape(cfg.get('button', DEFAULT_BUTTON))}\\n"
+                    f"Media: {'Set' if cfg.get('media_file_id') else 'Not set'}")
+            await BOT.edit_message_text(body, chat_id=message.chat.id,
+                                        message_id=panel_id, reply_markup=settings_keyboard())
+            return
+        except Exception:
+            log.exception("Could not open settings in existing panel")
+    sent = await message.answer("<b>LINKS POST</b>\\n\\n<i>Configure the message users receive with their one-minute invite link.</i>",
+                                reply_markup=settings_keyboard())
+    owner_panels[message.chat.id] = sent.message_id
+
+
 @dp.callback_query(F.data == "settings")
 async def open_settings(call: CallbackQuery):
     if not is_owner(call.from_user.id):
