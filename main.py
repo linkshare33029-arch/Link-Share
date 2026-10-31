@@ -332,7 +332,15 @@ async def add_menu(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Not allowed", show_alert=True)
         return
-    await call.answer()
+    try:
+        await call.answer()
+    except TelegramBadRequest as exc:
+        # A delayed webhook can outlive Telegram's callback-query window.
+        # Do not let an expired acknowledgement prevent the reply keyboard.
+        if "query is too old" not in str(exc).lower() and "query id is invalid" not in str(exc).lower():
+            raise
+        log.warning("Add-chat callback expired; continuing to show picker keyboard.")
+
     await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose Channel or Group using the keyboard below.</i>", None)
     prompt = await call.message.answer(
         " ",
