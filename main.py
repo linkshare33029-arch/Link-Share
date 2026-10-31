@@ -24,6 +24,8 @@ log = logging.getLogger("link-share")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
+if not OWNER_IDS:
+    raise RuntimeError("OWNER must contain at least one Telegram user ID.")
 MONGO_URI = os.environ.get("URI", "").strip()
 DB_NAME = os.environ.get("DB_NAME", "link_share").strip() or "link_share"
 if not BOT_TOKEN or not MONGO_URI:
@@ -739,15 +741,15 @@ async def expire_one_link(record):
             f"<b>Error:</b> <code>{html.escape(last_error)}</code>\n"
             "<b>Attempts:</b> 1 initial + 3 retries"
         )
-        try:
-            for owner_id in OWNER_IDS:
-                try:
-                    await BOT.send_message(owner_id, details)
-                except TelegramAPIError:
-                    log.exception("Could not notify owner %s about failed invite revoke", owner_id)
-                    raise
-        except TelegramAPIError:
-            log.exception("Could not notify owner about failed invite revoke; keeping record for recovery")
+        alert_failed = False
+        for owner_id in OWNER_IDS:
+            try:
+                await BOT.send_message(owner_id, details)
+            except TelegramAPIError:
+                alert_failed = True
+                log.exception("Could not notify owner %s about failed invite revoke", owner_id)
+        if alert_failed:
+            log.error("At least one owner alert failed; keeping invite record for recovery")
             return
         await issued.delete_one({"_id": record["_id"]})
     except asyncio.CancelledError:
