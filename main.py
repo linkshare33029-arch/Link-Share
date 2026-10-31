@@ -349,6 +349,10 @@ async def picker_choice(message: Message):
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
         await restore_picker_panel(state)
         return
+    try:
+        await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
+    except TelegramAPIError:
+        pass
     kind = "channel" if message.text == "Channel" else "group"
     prompt = await BOT.send_message(
         state["panel_chat_id"],
@@ -658,7 +662,10 @@ def schedule_expiry(record):
 async def expire_one_link(record):
     key = str(record["_id"])
     try:
-        delay = max(0, (record["expires_at"] - datetime.now(timezone.utc)).total_seconds())
+        expires_at = record["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        delay = max(0, (expires_at - datetime.now(timezone.utc)).total_seconds())
         await asyncio.sleep(delay)
         last_error = "Unknown revoke failure"
         for attempt in range(4):
