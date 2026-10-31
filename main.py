@@ -329,7 +329,7 @@ async def chat_shared(message: Message):
                 reply_markup=ReplyKeyboardRemove(),
             )
             return
-        code = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+        code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
         await chats.update_one(
             {"chat_id": shared.chat_id},
@@ -379,8 +379,30 @@ async def remove_chat(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     code = call.data.split(":", 1)[1]
-    await chats.update_one({"code": code}, {"$set": {"active": False}})
-    await call.answer("Removed")
+    chat_doc = await chats.find_one({"code": code, "active": True})
+    if not chat_doc:
+        await call.answer("Chat not found", show_alert=True)
+        return
+
+    # Disable the deep link first so no new invites can be requested while removal runs.
+    await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {"active": False}})
+    failed = False
+    cursor = issued.find({"chat_id": chat_doc["chat_id"], "revoked": False})
+    async for record in cursor:
+        if not await revoke_record(record):
+            failed = True
+
+    if failed:
+        # Keep the chat record so the owner can retry; successfully revoked links stay revoked.
+        await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {"active": True}})
+        await call.answer(
+            "Some links could not be revoked. Chat kept; please retry Remove.",
+            show_alert=True,
+        )
+        return
+
+    await chats.delete_one({"_id": chat_doc["_id"]})
+    await call.answer("Chat removed; all active links revoked.")
     await render_home(call.message, edit_existing=True)
 
 
@@ -443,16 +465,6 @@ async def cfg_prompt(call: CallbackQuery):
             [InlineKeyboardButton(text="Cancel", callback_data="settings")]
         ]),
     )
-
-
-@dp.callback_query(F.data == "settings")
-async def return_settings(call: CallbackQuery):
-    if not is_owner(call.from_user.id):
-        await call.answer("Not allowed", show_alert=True)
-        return
-    await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
-    await call.answer()
-    await show_settings(call.message)
 
 
 @dp.message()
@@ -556,14 +568,16 @@ async def revoke_record(record):
     try:
         await BOT.revoke_chat_invite_link(record["chat_id"], record["invite_link"])
     except TelegramBadRequest as exc:
-        log.info("Invite already expired/revoked or revoke rejected: %s", exc)
+        # Telegram also returns BadRequest when a link has already expired or been revoked.
+        log.info("Invite already expired/revoked: %s", exc)
     except TelegramAPIError:
         log.exception("Invite revoke failed for chat %s", record["chat_id"])
-        return
+        return False
     await issued.update_one(
         {"_id": record["_id"]},
         {"$set": {"revoked": True, "revoked_at": datetime.now(timezone.utc)}},
     )
+    return True
 
 
 async def expiry_worker():
