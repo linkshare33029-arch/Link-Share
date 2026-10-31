@@ -719,18 +719,7 @@ async def main():
         app = web.Application()
         app.router.add_get("/", health)
         app.router.add_get("/health", health)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000")))
-        await site.start()
-        async for pending_link in issued.find({"revoked": False}):
-            schedule_expiry(pending_link)
-        log.info("Link-Share ready as @%s; MongoDB connected; per-link expiry tasks restored.", bot_username)
-        public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
         if public_url:
-            webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
-            app.router.add_post("/telegram/webhook", telegram_webhook)
-            app["webhook_secret"] = webhook_secret
             await BOT.set_webhook(
                 url=f"{public_url}/telegram/webhook",
                 secret_token=webhook_secret,
