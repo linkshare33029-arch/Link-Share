@@ -335,7 +335,7 @@ async def add_menu(call: CallbackQuery):
     await call.answer()
     await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose Channel or Group using the keyboard below.</i>", None)
     prompt = await call.message.answer(
-        "Select chat type:",
+        " ",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text="Channel"), KeyboardButton(text="Group")],
                       [KeyboardButton(text="Back")]],
@@ -395,7 +395,7 @@ async def picker_choice(message: Message):
     kind = "channel" if message.text == "Channel" else "group"
     prompt = await BOT.send_message(
         state["panel_chat_id"],
-        f"Choose one {kind} from Telegram's chat picker:",
+        " ",
         reply_markup=request_chat_keyboard(kind),
     )
     await ui_state.update_one(
