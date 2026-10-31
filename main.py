@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
 BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
-OWNER = int(os.environ["OWNER"])
+OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 MONGO_URI = os.environ.get("URI", "").strip()
 DB_NAME = os.environ.get("DB_NAME", "link_share").strip() or "link_share"
 if not BOT_TOKEN or not MONGO_URI:
@@ -45,7 +45,7 @@ expiry_tasks = {}
 
 
 def is_owner(user_id: int) -> bool:
-    return user_id == OWNER
+    return user_id in OWNER_IDS
 
 
 def small_caps(value: str) -> str:
@@ -68,6 +68,7 @@ def main_keyboard(items):
     if row:
         rows.append(row)
     rows.append([InlineKeyboardButton(text="+", callback_data="add")])
+    rows.append([InlineKeyboardButton(text="ʟɪɴᴋs ᴘᴏsᴛ", callback_data="settings")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -285,10 +286,10 @@ async def start(message: Message):
     if not message.from_user:
         return
     if is_owner(message.from_user.id):
-        old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
-        await render_home(message)
-        fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
-        await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            pass
         return
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
@@ -299,21 +300,24 @@ async def start(message: Message):
     await send_fresh_link(message, doc)
 
 
+@dp.message(Command("owner"))
+async def owner_command(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
+    await render_home(message)
+    fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
+    await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
+
+
 @dp.message(Command("set"))
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
-    sent = await message.answer(
-        "<b><u>LINKS POST</u></b>\\n\\n"
-        "<i>Edit caption, media, and button using the buttons below:</i>",
-        reply_markup=settings_keyboard(),
-    )
-    await ui_state.update_one({"_id": f"settings:{message.chat.id}"},
-        {"$set": {"message_id": sent.message_id}}, upsert=True)
-    await finish_owner_command(message, old_panel_ids, keyboard_notice, sent.message_id)
-
-
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
 @dp.callback_query(F.data == "home")
 async def go_home(call: CallbackQuery):
     if not is_owner(call.from_user.id):
@@ -736,7 +740,12 @@ async def expire_one_link(record):
             "<b>Attempts:</b> 1 initial + 3 retries"
         )
         try:
-            await BOT.send_message(OWNER, details)
+            for owner_id in OWNER_IDS:
+                try:
+                    await BOT.send_message(owner_id, details)
+                except TelegramAPIError:
+                    log.exception("Could not notify owner %s about failed invite revoke", owner_id)
+                    raise
         except TelegramAPIError:
             log.exception("Could not notify owner about failed invite revoke; keeping record for recovery")
             return
