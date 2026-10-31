@@ -41,6 +41,7 @@ DEFAULT_BUTTON = "ᴄʟɪᴄᴋ ʜᴇʀᴇ"
 BOT: Bot
 dp = Dispatcher()
 bot_username = ""
+expiry_tasks = {}
 
 
 def is_owner(user_id: int) -> bool:
@@ -172,22 +173,28 @@ async def send_fresh_link(message: Message, chat_doc):
     invite = None
     try:
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=1)
-        invite = await BOT.create_chat_invite_link(
-            chat_id=chat_doc["chat_id"],
-            expire_date=expires_at,
-            creates_join_request=bool(chat_doc.get("is_private")),
-            name=f"LS-{message.from_user.id}"[:32],
-        )
+        invite_args = {
+            "chat_id": chat_doc["chat_id"],
+            "expire_date": expires_at,
+            "creates_join_request": bool(chat_doc.get("is_private")),
+            "name": f"LS-{message.from_user.id}"[:32],
+        }
+        if not chat_doc.get("is_private"):
+            invite_args["member_limit"] = 1
+        invite = await BOT.create_chat_invite_link(**invite_args)
         record = {
             "invite_link": invite.invite_link,
             "chat_id": chat_doc["chat_id"],
             "code": chat_doc["code"],
+            "chat_title": chat_doc.get("title", str(chat_doc["chat_id"])),
             "user_id": message.from_user.id,
             "created_at": datetime.now(timezone.utc),
             "expires_at": expires_at,
             "revoked": False,
         }
-        await issued.insert_one(record)
+        result = await issued.insert_one(record)
+        record["_id"] = result.inserted_id
+        schedule_expiry(record)
         cfg = await get_config()
         button_text = (cfg.get("button") or DEFAULT_BUTTON)[:64]
         markup = InlineKeyboardMarkup(inline_keyboard=[[
@@ -329,10 +336,17 @@ async def chat_shared(message: Message):
                 reply_markup=ReplyKeyboardRemove(),
             )
             return
+        existing = await chats.find_one({"chat_id": shared.chat_id})
+        if existing:
+            await message.answer(
+                f"This chat is already added: {html.escape(existing.get('title', str(shared.chat_id)))}",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            await render_home(message)
+            return
         code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
-        await chats.update_one(
-            {"chat_id": shared.chat_id},
+        await chats.insert_one({
             {"$set": {
                 "chat_id": shared.chat_id,
                 "title": title,
@@ -341,9 +355,7 @@ async def chat_shared(message: Message):
                 "is_private": not bool(getattr(chat, "username", None)),
                 "active": True,
                 "created_at": datetime.now(timezone.utc),
-            }},
-            upsert=True,
-        )
+            })
         await message.answer("Chat added.", reply_markup=ReplyKeyboardRemove())
         await render_home(message)
     except Exception:
@@ -560,18 +572,30 @@ async def member_update(update: ChatMemberUpdated):
             },
             sort=[("created_at", -1)],
         )
-    if record:
-        await revoke_record(record)
+    if record and await revoke_record(record):
+        task = expiry_tasks.get(str(record["_id"]))
+        if task and task is not asyncio.current_task():
+            task.cancel()
+        await issued.delete_one({"_id": record["_id"]})
 
 
 async def revoke_record(record):
     try:
         await BOT.revoke_chat_invite_link(record["chat_id"], record["invite_link"])
     except TelegramBadRequest as exc:
-        # Telegram also returns BadRequest when a link has already expired or been revoked.
-        log.info("Invite already expired/revoked: %s", exc)
-    except TelegramAPIError:
-        log.exception("Invite revoke failed for chat %s", record["chat_id"])
+        error_text = str(exc).lower()
+        already_inactive = any(phrase in error_text for phrase in (
+            "invite link is already revoked",
+            "invite link has already been revoked",
+            "invite link has expired",
+            "invite link is expired",
+        ))
+        if not already_inactive:
+            log.error("Telegram rejected invite revoke for %s: %s", record.get("chat_id"), exc)
+            return False
+        log.info("Invite is already inactive: %s", exc)
+    except TelegramAPIError as exc:
+        log.error("Invite revoke API failure for chat %s: %s", record.get("chat_id"), exc)
         return False
     await issued.update_one(
         {"_id": record["_id"]},
@@ -580,20 +604,52 @@ async def revoke_record(record):
     return True
 
 
-async def expiry_worker():
-    while True:
+def schedule_expiry(record):
+    key = str(record["_id"])
+    old_task = expiry_tasks.get(key)
+    if old_task and not old_task.done():
+        old_task.cancel()
+    expiry_tasks[key] = asyncio.create_task(expire_one_link(record))
+
+
+async def expire_one_link(record):
+    key = str(record["_id"])
+    try:
+        delay = max(0, (record["expires_at"] - datetime.now(timezone.utc)).total_seconds())
+        await asyncio.sleep(delay)
+        last_error = "Unknown revoke failure"
+        for attempt in range(4):
+            try:
+                latest = await issued.find_one({"_id": record["_id"]})
+                if not latest:
+                    return
+                if latest.get("revoked") or await revoke_record(latest):
+                    await issued.delete_one({"_id": record["_id"]})
+                    return
+                last_error = "Telegram did not confirm revocation; check service logs for the exact API error."
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                log.exception("Expiry attempt %s failed for invite %s", attempt + 1, record.get("invite_link"))
+            if attempt < 3:
+                await asyncio.sleep(60)
+        details = (
+            "⚠️ <b>INVITE REVOKE FAILED</b>\n\n"
+            f"<b>Chat:</b> {html.escape(record.get('chat_title', str(record['chat_id'])))}\n"
+            f"<b>Chat ID:</b> <code>{record['chat_id']}</code>\n"
+            f"<b>Invite:</b> <code>{html.escape(record['invite_link'])}</code>\n"
+            f"<b>Error:</b> <code>{html.escape(last_error)}</code>\n"
+            "<b>Attempts:</b> 1 initial + 3 retries"
+        )
         try:
-            now = datetime.now(timezone.utc)
-            cursor = issued.find(
-                {"revoked": False, "expires_at": {"$lte": now}}
-            ).limit(500)
-            async for record in cursor:
-                await revoke_record(record)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("Expiry worker error")
-        await asyncio.sleep(5)
+            await BOT.send_message(OWNER, details)
+        except TelegramAPIError:
+            log.exception("Could not notify owner about failed invite revoke")
+        await issued.delete_one({"_id": record["_id"]})
+    except asyncio.CancelledError:
+        raise
+    finally:
+        if expiry_tasks.get(key) is asyncio.current_task():
+            expiry_tasks.pop(key, None)
 
 
 async def health(request):
@@ -626,19 +682,18 @@ async def main():
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000")))
         await site.start()
-        worker = asyncio.create_task(expiry_worker())
-        log.info("Link-Share ready as @%s; MongoDB connected; HTTP health server listening.", bot_username)
+        async for pending_link in issued.find({"revoked": False}):
+            schedule_expiry(pending_link)
+        log.info("Link-Share ready as @%s; MongoDB connected; per-link expiry tasks restored.", bot_username)
         await dp.start_polling(
             BOT,
             allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
         )
     finally:
-        if worker:
-            worker.cancel()
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
+        for task in list(expiry_tasks.values()):
+            task.cancel()
+        if expiry_tasks:
+            await asyncio.gather(*list(expiry_tasks.values()), return_exceptions=True)
         if runner:
             await runner.cleanup()
         await BOT.session.close()
