@@ -37,8 +37,8 @@ chats = db.chats
 settings = db.settings
 issued = db.issued_links
 
-DEFAULT_CAPTION = "Here is your link! Click button below to proceed:"
-DEFAULT_BUTTON = "Click here"
+DEFAULT_CAPTION = "ʜᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:"
+DEFAULT_BUTTON = "ᴄʟɪᴄᴋ ʜᴇʀᴇ"
 BOT: Bot
 dp = Dispatcher(storage=MemoryStorage())
 owner_prompts = {}
@@ -428,9 +428,15 @@ async def member_update(update: ChatMemberUpdated):
     if update.new_chat_member.status not in ("member", "administrator", "creator"):
         return
     link = update.invite_link.invite_link if update.invite_link else None
-    if not link:
-        return
-    record = await issued.find_one({"invite_link": link, "revoked": False})
+    record = None
+    if link:
+        record = await issued.find_one({"invite_link": link, "revoked": False})
+    if not record:
+        # Telegram may omit invite_link on approval updates; match the user's outstanding link.
+        record = await issued.find_one(
+            {"chat_id": update.chat.id, "user_id": update.new_chat_member.user.id, "revoked": False},
+            sort=[("created_at", -1)]
+        )
     if record:
         await revoke_record(record)
 
