@@ -294,7 +294,7 @@ async def add_menu(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     await call.answer()
-    await edit_panel(call.message, "<b>ADD CHAT</b>\\n\\n<i>Choose Channel or Group using the keyboard below.</i>", None)
+    await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose Channel or Group using the keyboard below.</i>", None)
     prompt = await call.message.answer(
         "Select chat type:",
         reply_markup=ReplyKeyboardMarkup(
@@ -313,6 +313,27 @@ async def add_menu(call: CallbackQuery):
     )
 
 
+async def restore_picker_panel(state, notice=None):
+    try:
+        await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
+    except (TelegramAPIError, KeyError):
+        pass
+    try:
+        await BOT.edit_message_text(
+            await home_text(),
+            chat_id=state["panel_chat_id"],
+            message_id=state["panel_message_id"],
+            reply_markup=main_keyboard(await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)),
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            log.warning("Could not restore home panel after chat selection: %s", exc)
+    if notice:
+        await BOT.send_message(state["panel_chat_id"], notice, reply_markup=ReplyKeyboardRemove())
+    else:
+        await BOT.send_message(state["panel_chat_id"], "Selection closed.", reply_markup=ReplyKeyboardRemove())
+
+
 @dp.message(F.text.in_({"Channel", "Group", "Back"}))
 async def picker_choice(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
@@ -320,23 +341,23 @@ async def picker_choice(message: Message):
     state = await ui_state.find_one({"_id": f"picker:{message.from_user.id}"})
     if not state:
         return
-    if message.text == "Back":
-        try:
-            await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
-        except TelegramAPIError:
-            pass
-        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await message.answer("Selection closed.", reply_markup=ReplyKeyboardRemove())
-        await render_home(message)
-        return
-    kind = "channel" if message.text == "Channel" else "group"
     try:
         await message.delete()
     except TelegramAPIError:
         pass
-    await message.answer(
+    if message.text == "Back":
+        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+        await restore_picker_panel(state)
+        return
+    kind = "channel" if message.text == "Channel" else "group"
+    prompt = await BOT.send_message(
+        state["panel_chat_id"],
         f"Choose one {kind} from Telegram's chat picker:",
         reply_markup=request_chat_keyboard(kind),
+    )
+    await ui_state.update_one(
+        {"_id": f"picker:{message.from_user.id}"},
+        {"$set": {"prompt_message_id": prompt.message_id, "kind": kind}},
     )
 
 
@@ -344,30 +365,28 @@ async def picker_choice(message: Message):
 async def chat_shared(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    state = await ui_state.find_one({"_id": f"picker:{message.from_user.id}"})
+    if not state:
+        return
     try:
         shared = message.chat_shared
         chat = await BOT.get_chat(shared.chat_id)
         me = await BOT.get_me()
         member = await BOT.get_chat_member(shared.chat_id, me.id)
         if member.status not in {"administrator", "creator"}:
-            await message.answer(
-                "The bot must be an administrator in this chat with invite-link permission.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
+            await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+            await restore_picker_panel(state, "Bot ko selected chat mein admin banana aur invite permission dena zaroori hai.")
             return
         if not getattr(member, "can_invite_users", False) and member.status != "creator":
-            await message.answer(
-                "Please grant the bot permission to invite users, then select the chat again.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
+            await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+            await restore_picker_panel(state, "Bot ko invite-users permission do, phir chat dobara select karo.")
             return
         existing = await chats.find_one({"chat_id": shared.chat_id})
         if existing:
-            await message.answer(
-                f"This chat is already added: {html.escape(existing.get('title', str(shared.chat_id)))}",
-                reply_markup=ReplyKeyboardRemove(),
+            await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+            await restore_picker_panel(
+                state, f"Ye chat pehle se added hai: {html.escape(existing.get('title', str(shared.chat_id)))}"
             )
-            await render_home(message)
             return
         code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
@@ -380,14 +399,12 @@ async def chat_shared(message: Message):
             "active": True,
             "created_at": datetime.now(timezone.utc),
         })
-        await message.answer("Chat added.", reply_markup=ReplyKeyboardRemove())
-        await render_home(message)
+        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+        await restore_picker_panel(state, "Chat successfully add ho gayi.")
     except Exception:
         log.exception("Unable to save selected chat")
-        await message.answer(
-            "Could not add this chat. Ensure the bot is an administrator with invite-link permission.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
+        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+        await restore_picker_panel(state, "Chat add nahi ho payi. Admin/invite permissions check karo.")
 
 
 @dp.callback_query(F.data.startswith("chat:"))
@@ -705,7 +722,6 @@ async def health(request):
 async def main():
     global BOT, bot_username
     BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    worker = None
     runner = None
     try:
         me = await BOT.get_me()
@@ -716,17 +732,31 @@ async def main():
         await chats.create_index([("chat_id", 1)], unique=True, name="uniq_chat_id")
         await issued.create_index([("expires_at", 1), ("revoked", 1)], name="invite_expiry")
         await issued.create_index([("chat_id", 1), ("user_id", 1), ("created_at", -1)], name="invite_user_lookup")
+
+        # Restore one independent timer per outstanding invite after a process restart.
+        async for record in issued.find({"revoked": False}):
+            schedule_expiry(record)
+
+        public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
         app = web.Application()
+        app["webhook_secret"] = webhook_secret
         app.router.add_get("/", health)
         app.router.add_get("/health", health)
+
         if public_url:
+            app.router.add_post("/telegram/webhook", telegram_webhook)
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000")))
+            await site.start()
             await BOT.set_webhook(
                 url=f"{public_url}/telegram/webhook",
                 secret_token=webhook_secret,
                 allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
                 drop_pending_updates=False,
             )
-            log.info("Telegram webhook enabled; polling disabled to prevent deployment conflicts.")
+            log.info("Webhook active at %s/telegram/webhook; polling disabled.", public_url)
             await asyncio.Event().wait()
         else:
             log.warning("RENDER_EXTERNAL_URL missing; using polling fallback.")
