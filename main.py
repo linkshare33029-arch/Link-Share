@@ -88,6 +88,7 @@ def settings_keyboard():
          InlineKeyboardButton(text="ᴍᴇᴅɪᴀ", callback_data="cfg:media")],
         [InlineKeyboardButton(text="ᴄᴀᴘᴛɪᴏɴ", callback_data="cfg:caption"),
          InlineKeyboardButton(text="ʙᴜᴛᴛᴏɴ", callback_data="cfg:button")],
+        [InlineKeyboardButton(text="Back", callback_data="home")],
     ])
 
 
@@ -298,6 +299,7 @@ async def start(message: Message):
     await send_fresh_link(message, doc)
 
 
+@dp.message(Command("admin"))
 @dp.message(Command("owner"))
 async def owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
