@@ -414,6 +414,12 @@ async def chat_shared(message: Message):
     state = await ui_state.find_one({"_id": f"picker:{message.from_user.id}"})
     if not state:
         return
+    # Telegram sends the selected chat as a service message in the owner's chat.
+    # Remove it immediately so "You shared a chat with the bot" never remains visible.
+    try:
+        await message.delete()
+    except TelegramAPIError as delete_error:
+        log.warning("Could not delete chat-shared service message %s: %s", message.message_id, delete_error)
     try:
         shared = message.chat_shared
         chat = await BOT.get_chat(shared.chat_id)
