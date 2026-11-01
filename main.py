@@ -341,7 +341,7 @@ async def add_menu(call: CallbackQuery):
             raise
         log.warning("Add-chat callback expired; continuing to show picker keyboard.")
 
-    await edit_panel(call.message, "<b>ADD CHAT</b>\\n\\n<i>Tap Channel or Group to open Telegram's chat picker directly.</i>", None)
+    await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Tap Channel or Group to open Telegram's chat picker directly.</i>", None)
     prompt = await call.message.answer(
         "Select a chat:",
         reply_markup=ReplyKeyboardMarkup(
