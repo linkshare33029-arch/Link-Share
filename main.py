@@ -156,7 +156,39 @@ async def finish_owner_command(message: Message, old_panel_ids, keyboard_notice=
         except TelegramAPIError:
             pass
 
+async def sync_chat_titles():
+    async for item in chats.find({"active": True}):
+        try:
+            current = await BOT.get_chat(item["chat_id"])
+            title = current.title or item.get("title") or str(item["chat_id"])
+            username = getattr(current, "username", None)
+            await chats.update_one(
+                {"_id": item["_id"]},
+                {"$set": {"title": title, "username": username, "is_private": not bool(username)}},
+            )
+        except TelegramAPIError as exc:
+            log.warning("Could not refresh title for chat %s: %s", item.get("chat_id"), exc)
+
+
+async def refresh_home_panels():
+    items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
+    markup = main_keyboard(items)
+    async for panel in ui_state.find({"_id": {"$regex": "^home:"}}):
+        try:
+            chat_id = int(panel["_id"].split(":", 1)[1])
+            await BOT.edit_message_text(
+                await home_text(), chat_id=chat_id,
+                message_id=panel["message_id"], reply_markup=markup,
+            )
+        except TelegramBadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                log.warning("Could not refresh owner home panel %s: %s", panel.get("_id"), exc)
+        except (TelegramAPIError, ValueError, KeyError):
+            log.exception("Could not update an owner home panel")
+
+
 async def render_home(message: Message, edit_existing=False):
+    await sync_chat_titles()
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
     body, markup = await home_text(), main_keyboard(items)
     panel = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
@@ -427,17 +459,17 @@ async def chat_shared(message: Message):
         member = await BOT.get_chat_member(shared.chat_id, me.id)
         if member.status not in {"administrator", "creator"}:
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-            await restore_picker_panel(state, "Bot ko selected chat mein admin banana aur invite permission dena zaroori hai.")
+            await restore_picker_panel(state, "Please make the bot an administrator in the selected chat and grant it permission to invite users.")
             return
         if not getattr(member, "can_invite_users", False) and member.status != "creator":
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-            await restore_picker_panel(state, "Bot ko invite-users permission do, phir chat dobara select karo.")
+            await restore_picker_panel(state, "Please grant the bot permission to invite users, then select the chat again.")
             return
         existing = await chats.find_one({"chat_id": shared.chat_id})
         if existing:
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
             await restore_picker_panel(
-                state, f"Ye chat pehle se added hai: {html.escape(existing.get('title', str(shared.chat_id)))}"
+                state, f"This chat has already been added: {html.escape(existing.get('title', str(shared.chat_id)))}"
             )
             return
         code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
@@ -452,12 +484,12 @@ async def chat_shared(message: Message):
             "created_at": datetime.now(timezone.utc),
         })
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await restore_picker_panel(state, "Chat successfully add ho gayi.")
+        await restore_picker_panel(state, "Chat added successfully.")
     except Exception as exc:
         log.exception("Unable to save selected chat")
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
         error_detail = str(exc).strip()
-        notice = f"Chat add nahi ho payi: {html.escape(error_detail[:300] or type(exc).__name__)}"
+        notice = f"Could not add the chat: {html.escape(error_detail[:300] or type(exc).__name__)}"
         await restore_picker_panel(state, notice)
 
 
@@ -658,6 +690,27 @@ async def owner_input(message: Message):
         )
     except TelegramAPIError:
         log.exception("Could not restore settings panel")
+
+
+async def update_chat_title_from_service(message: Message):
+    if not message.new_chat_title:
+        return
+    result = await chats.update_one(
+        {"chat_id": message.chat.id, "active": True},
+        {"$set": {"title": message.new_chat_title}},
+    )
+    if result.modified_count:
+        await refresh_home_panels()
+
+
+@dp.message(F.new_chat_title)
+async def group_title_changed(message: Message):
+    await update_chat_title_from_service(message)
+
+
+@dp.channel_post(F.new_chat_title)
+async def channel_title_changed(message: Message):
+    await update_chat_title_from_service(message)
 
 
 @dp.chat_member()
