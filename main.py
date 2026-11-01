@@ -741,7 +741,7 @@ async def expire_one_link(record):
                 last_error = f"{type(exc).__name__}: {exc}"
                 log.exception("Expiry attempt %s failed for invite %s", attempt + 1, record.get("invite_link"))
             if attempt < 3:
-                await asyncio.sleep(120)
+                await asyncio.sleep(30)
         details = (
             "⚠️ <b>INVITE REVOKE FAILED</b>\n\n"
             f"<b>Chat:</b> {html.escape(record.get('chat_title', str(record['chat_id'])))}\n"
@@ -750,16 +750,13 @@ async def expire_one_link(record):
             f"<b>Error:</b> <code>{html.escape(last_error)}</code>\n"
             "<b>Attempts:</b> 1 initial + 3 retries"
         )
-        alert_failed = False
         for owner_id in OWNER_IDS:
             try:
                 await BOT.send_message(owner_id, details)
             except TelegramAPIError:
-                alert_failed = True
                 log.exception("Could not notify owner %s about failed invite revoke", owner_id)
-        if alert_failed:
-            log.error("At least one owner alert failed; keeping invite record for recovery")
-            return
+        # After all 4 revoke attempts fail, remove this invite's database record
+        # after attempting owner notifications, even if a notification could not be delivered.
         await issued.delete_one({"_id": record["_id"]})
     except asyncio.CancelledError:
         raise
