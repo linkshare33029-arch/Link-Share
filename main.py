@@ -341,12 +341,24 @@ async def add_menu(call: CallbackQuery):
             raise
         log.warning("Add-chat callback expired; continuing to show picker keyboard.")
 
-    await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose Channel or Group using the keyboard below.</i>", None)
+    await edit_panel(call.message, "<b>ADD CHAT</b>\\n\\n<i>Tap Channel or Group to open Telegram's chat picker directly.</i>", None)
     prompt = await call.message.answer(
-        "Choose Channel or Group:",
+        "Select a chat:",
         reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="Channel"), KeyboardButton(text="Group")],
-                      [KeyboardButton(text="Back")]],
+            keyboard=[[
+                KeyboardButton(text="Channel", request_chat=KeyboardButtonRequestChat(
+                    request_id=secrets.randbelow(2_000_000_000) + 1,
+                    chat_is_channel=True,
+                    request_title=True,
+                    request_username=True,
+                )),
+                KeyboardButton(text="Group", request_chat=KeyboardButtonRequestChat(
+                    request_id=secrets.randbelow(2_000_000_000) + 1,
+                    chat_is_channel=False,
+                    request_title=True,
+                    request_username=True,
+                )),
+            ], [KeyboardButton(text="Back")]],
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
@@ -381,8 +393,8 @@ async def restore_picker_panel(state, notice=None):
         await BOT.send_message(state["panel_chat_id"], "Selection closed.", reply_markup=ReplyKeyboardRemove())
 
 
-@dp.message(F.text.in_({"Channel", "Group", "Back"}))
-async def picker_choice(message: Message):
+@dp.message(F.text == "Back")
+async def picker_back(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
     state = await ui_state.find_one({"_id": f"picker:{message.from_user.id}"})
@@ -392,25 +404,8 @@ async def picker_choice(message: Message):
         await message.delete()
     except TelegramAPIError:
         pass
-    if message.text == "Back":
-        await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await restore_picker_panel(state)
-        return
-    try:
-        await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
-    except TelegramAPIError:
-        pass
-    kind = "channel" if message.text == "Channel" else "group"
-    prompt = await BOT.send_message(
-        state["panel_chat_id"],
-        f"Tap below to choose a {kind.title()}:",
-        reply_markup=request_chat_keyboard(kind),
-    )
-    await ui_state.update_one(
-        {"_id": f"picker:{message.from_user.id}"},
-        {"$set": {"prompt_message_id": prompt.message_id, "kind": kind}},
-    )
-
+    await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+    await restore_picker_panel(state, "Chat selection cancelled.")
 
 @dp.message(F.chat_shared)
 async def chat_shared(message: Message):
@@ -452,10 +447,12 @@ async def chat_shared(message: Message):
         })
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
         await restore_picker_panel(state, "Chat successfully add ho gayi.")
-    except Exception:
+    except Exception as exc:
         log.exception("Unable to save selected chat")
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await restore_picker_panel(state, "Chat add nahi ho payi. Admin/invite permissions check karo.")
+        error_detail = str(exc).strip()
+        notice = f"Chat add nahi ho payi: {html.escape(error_detail[:300] or type(exc).__name__)}"
+        await restore_picker_panel(state, notice)
 
 
 @dp.callback_query(F.data.startswith("chat:"))
