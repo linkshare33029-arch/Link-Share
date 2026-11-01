@@ -215,7 +215,7 @@ def request_chat_keyboard(kind: str):
 async def send_fresh_link(message: Message, chat_doc):
     invite = None
     try:
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
         invite_args = {
             "chat_id": chat_doc["chat_id"],
             "expire_date": expires_at,
@@ -741,7 +741,7 @@ async def expire_one_link(record):
                 last_error = f"{type(exc).__name__}: {exc}"
                 log.exception("Expiry attempt %s failed for invite %s", attempt + 1, record.get("invite_link"))
             if attempt < 3:
-                await asyncio.sleep(60)
+                await asyncio.sleep(120)
         details = (
             "⚠️ <b>INVITE REVOKE FAILED</b>\n\n"
             f"<b>Chat:</b> {html.escape(record.get('chat_title', str(record['chat_id'])))}\n"
