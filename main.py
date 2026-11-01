@@ -131,7 +131,7 @@ async def clear_owner_panels(chat_id: int, owner_id: int):
     await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
     keyboard_notice = None
     try:
-        keyboard_notice = await BOT.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
+        keyboard_notice = await BOT.send_message(chat_id, "ㅤ", reply_markup=ReplyKeyboardRemove())
     except TelegramAPIError:
         pass
     return old_panel_ids, keyboard_notice
@@ -343,7 +343,7 @@ async def add_menu(call: CallbackQuery):
 
     await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Choose Channel or Group using the keyboard below.</i>", None)
     prompt = await call.message.answer(
-        " ",
+        "ㅤ",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text="Channel"), KeyboardButton(text="Group")],
                       [KeyboardButton(text="Back")]],
@@ -403,7 +403,7 @@ async def picker_choice(message: Message):
     kind = "channel" if message.text == "Channel" else "group"
     prompt = await BOT.send_message(
         state["panel_chat_id"],
-        " ",
+        "ㅤ",
         reply_markup=request_chat_keyboard(kind),
     )
     await ui_state.update_one(
