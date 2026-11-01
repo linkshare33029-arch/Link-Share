@@ -875,7 +875,7 @@ async def main():
             await BOT.set_webhook(
                 url=f"{public_url}/telegram/webhook",
                 secret_token=webhook_secret,
-                allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
+                allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
                 drop_pending_updates=False,
             )
             log.info("Webhook active at %s/telegram/webhook; polling disabled.", public_url)
@@ -884,7 +884,7 @@ async def main():
             log.warning("RENDER_EXTERNAL_URL missing; using polling fallback.")
             await dp.start_polling(
                 BOT,
-                allowed_updates=["message", "callback_query", "chat_member", "chat_join_request"],
+                allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
             )
     finally:
         for task in list(expiry_tasks.values()):
