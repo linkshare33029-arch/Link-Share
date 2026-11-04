@@ -94,7 +94,7 @@ def settings_keyboard():
 
 def detail_keyboard(code):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="ʀᴇᴍᴏᴠᴇ", callback_data=f"remove:{code}")],
+        [InlineKeyboardButton(text="Replace Chat", callback_data=f"replace:{code}")],
         [InlineKeyboardButton(text="Back", callback_data="home")],
     ])
 
@@ -317,10 +317,13 @@ async def start(message: Message):
     if not message.from_user:
         return
     if is_owner(message.from_user.id):
-        try:
-            await message.delete()
-        except TelegramAPIError:
-            pass
+        old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
+        await render_home(message)
+        fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
+        await finish_owner_command(
+            message, old_panel_ids, keyboard_notice,
+            fresh.get("message_id") if fresh else None,
+        )
         return
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
@@ -404,6 +407,52 @@ async def add_menu(call: CallbackQuery):
     )
 
 
+@dp.callback_query(F.data.startswith("replace:"))
+async def replace_chat_menu(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    code = call.data.split(":", 1)[1]
+    item = await chats.find_one({"code": code, "active": True})
+    if not item:
+        await call.answer("Chat not found", show_alert=True)
+        return
+    await call.answer()
+    await edit_panel(
+        call.message,
+        "<b>REPLACE CHAT</b>\n\n<i>Choose Channel or Group to select the new chat. The existing deep link will remain unchanged.</i>",
+        None,
+    )
+    prompt = await call.message.answer(
+        "Select the replacement chat:",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[
+                KeyboardButton(text="Channel", request_chat=KeyboardButtonRequestChat(
+                    request_id=secrets.randbelow(2_000_000_000) + 1,
+                    chat_is_channel=True, request_title=True, request_username=True,
+                )),
+                KeyboardButton(text="Group", request_chat=KeyboardButtonRequestChat(
+                    request_id=secrets.randbelow(2_000_000_000) + 1,
+                    chat_is_channel=False, request_title=True, request_username=True,
+                )),
+            ], [KeyboardButton(text="Back")]],
+            resize_keyboard=True,
+            one_time_keyboard=True,
+        ),
+    )
+    await ui_state.update_one(
+        {"_id": f"picker:{call.from_user.id}"},
+        {"$set": {
+            "action": "replace",
+            "target_code": code,
+            "prompt_message_id": prompt.message_id,
+            "panel_chat_id": call.message.chat.id,
+            "panel_message_id": call.message.message_id,
+        }},
+        upsert=True,
+    )
+
+
 async def restore_picker_panel(state, notice=None):
     try:
         await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
@@ -465,26 +514,69 @@ async def chat_shared(message: Message):
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
             await restore_picker_panel(state, "Please grant the bot permission to invite users, then select the chat again.")
             return
-        existing = await chats.find_one({"chat_id": shared.chat_id})
-        if existing:
-            await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-            await restore_picker_panel(
-                state, f"This chat has already been added: {html.escape(existing.get('title', str(shared.chat_id)))}"
-            )
-            return
-        code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
+        action = state.get("action", "add")
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
-        await chats.insert_one({
-            "chat_id": shared.chat_id,
-            "title": title,
-            "code": code,
-            "username": getattr(chat, "username", None),
-            "is_private": not bool(getattr(chat, "username", None)),
-            "active": True,
-            "created_at": datetime.now(timezone.utc),
-        })
+        username = getattr(chat, "username", None)
+        if action == "replace":
+            target = await chats.find_one({"code": state.get("target_code"), "active": True})
+            if not target:
+                raise RuntimeError("The chat selected for replacement could not be found.")
+            existing = await chats.find_one({"chat_id": shared.chat_id, "active": True})
+            if existing and existing["_id"] != target["_id"]:
+                await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+                await restore_picker_panel(
+                    state, f"This chat has already been added: {html.escape(existing.get('title', str(shared.chat_id)))}"
+                )
+                return
+            # Revoke any outstanding invite links for the old destination before switching.
+            failed_records = []
+            async for record in issued.find({"chat_id": target["chat_id"], "revoked": False}):
+                if not await revoke_record(record):
+                    failed_records.append(record)
+                else:
+                    task = expiry_tasks.get(str(record["_id"]))
+                    if task and task is not asyncio.current_task():
+                        task.cancel()
+                    await issued.delete_one({"_id": record["_id"]})
+            if failed_records:
+                details = "; ".join(
+                    f"{r.get('invite_link')}: {r.get('_last_revoke_error', 'revocation failed')}"
+                    for r in failed_records
+                )
+                raise RuntimeError("Could not revoke every active invite for the old chat. No replacement was made. " + details[:500])
+            await chats.update_one(
+                {"_id": target["_id"]},
+                {"$set": {
+                    "chat_id": shared.chat_id,
+                    "title": title,
+                    "username": username,
+                    "is_private": not bool(username),
+                    "active": True,
+                    "replaced_at": datetime.now(timezone.utc),
+                }},
+            )
+            notice = "Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat."
+        else:
+            existing = await chats.find_one({"chat_id": shared.chat_id, "active": True})
+            if existing:
+                await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
+                await restore_picker_panel(
+                    state, f"This chat has already been added: {html.escape(existing.get('title', str(shared.chat_id)))}"
+                )
+                return
+            code = "".join(secrets.choice(string.ascii_uppercase + string.ascii_lowercase + string.digits) for _ in range(25))
+            await chats.insert_one({
+                "chat_id": shared.chat_id,
+                "title": title,
+                "code": code,
+                "username": username,
+                "is_private": not bool(username),
+                "active": True,
+                "created_at": datetime.now(timezone.utc),
+            })
+            notice = "Chat added successfully."
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await restore_picker_panel(state, "Chat added successfully.")
+        await restore_picker_panel(state, notice)
     except Exception as exc:
         log.exception("Unable to save selected chat")
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
@@ -510,39 +602,6 @@ async def chat_detail(call: CallbackQuery):
     )
     await call.answer()
     await edit_panel(call.message, body, detail_keyboard(code))
-
-
-@dp.callback_query(F.data.startswith("remove:"))
-async def remove_chat(call: CallbackQuery):
-    if not is_owner(call.from_user.id):
-        await call.answer("Not allowed", show_alert=True)
-        return
-    code = call.data.split(":", 1)[1]
-    chat_doc = await chats.find_one({"code": code, "active": True})
-    if not chat_doc:
-        await call.answer("Chat not found", show_alert=True)
-        return
-
-    # Disable the deep link first so no new invites can be requested while removal runs.
-    await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {"active": False}})
-    failed = False
-    cursor = issued.find({"chat_id": chat_doc["chat_id"], "revoked": False})
-    async for record in cursor:
-        if not await revoke_record(record):
-            failed = True
-
-    if failed:
-        # Keep the chat record so the owner can retry; successfully revoked links stay revoked.
-        await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {"active": True}})
-        await call.answer(
-            "Some links could not be revoked. Chat kept; please retry Remove.",
-            show_alert=True,
-        )
-        return
-
-    await chats.delete_one({"_id": chat_doc["_id"]})
-    await call.answer("Chat removed; all active links revoked.")
-    await render_home(call.message, edit_existing=True)
 
 
 @dp.callback_query(F.data == "settings")
