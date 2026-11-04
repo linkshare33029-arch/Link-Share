@@ -316,15 +316,6 @@ async def send_fresh_link(message: Message, chat_doc):
 async def start(message: Message):
     if not message.from_user:
         return
-    if is_owner(message.from_user.id):
-        old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
-        await render_home(message)
-        fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
-        await finish_owner_command(
-            message, old_panel_ids, keyboard_notice,
-            fresh.get("message_id") if fresh else None,
-        )
-        return
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
     doc = await chats.find_one({"code": code, "active": True}) if code else None
