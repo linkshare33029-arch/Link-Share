@@ -43,6 +43,7 @@ DEFAULT_BUTTON = "ᴄʟɪᴄᴋ ʜᴇʀᴇ"
 BOT: Bot
 dp = Dispatcher()
 bot_username = ""
+bot_user_id = 0
 expiry_tasks = {}
 POST_CONFIG_CACHE = None
 
@@ -498,9 +499,10 @@ async def chat_shared(message: Message):
         log.warning("Could not delete chat-shared service message %s: %s", message.message_id, delete_error)
     try:
         shared = message.chat_shared
-        chat = await BOT.get_chat(shared.chat_id)
-        me = await BOT.get_me()
-        member = await BOT.get_chat_member(shared.chat_id, me.id)
+        chat, member = await asyncio.gather(
+            BOT.get_chat(shared.chat_id),
+            BOT.get_chat_member(shared.chat_id, bot_user_id),
+        )
         if member.status not in {"administrator", "creator"}:
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
             await restore_picker_panel(state, "Please make the bot an administrator in the selected chat and grant it permission to invite users.")
@@ -738,11 +740,10 @@ async def owner_input(message: Message):
     except TelegramAPIError:
         pass
     try:
-        panel = await BOT.get_chat(pending["panel_chat_id"])
         await BOT.edit_message_text(
             "<b><u>LINKS POST</u></b>\n\n"
             "<i>Edit caption, media, and button using the buttons below:</i>",
-            chat_id=panel.id,
+            chat_id=pending["panel_chat_id"],
             message_id=pending["panel_message_id"],
             reply_markup=settings_keyboard(),
         )
@@ -900,12 +901,13 @@ async def health(request):
 
 
 async def main():
-    global BOT, bot_username
+    global BOT, bot_username, bot_user_id
     BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     runner = None
     try:
         me = await BOT.get_me()
         bot_username = me.username or ""
+        bot_user_id = me.id
         await mongo.admin.command("ping")
         await get_config()
         await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
