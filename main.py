@@ -44,6 +44,7 @@ BOT: Bot
 dp = Dispatcher()
 bot_username = ""
 expiry_tasks = {}
+POST_CONFIG_CACHE = None
 
 
 def is_owner(user_id: int) -> bool:
@@ -100,12 +101,24 @@ def detail_keyboard(code):
 
 
 async def get_config():
+    global POST_CONFIG_CACHE
+    if POST_CONFIG_CACHE is not None:
+        return POST_CONFIG_CACHE
     defaults = {
         "_id": "post", "caption": DEFAULT_CAPTION, "caption_entities": [],
         "button": DEFAULT_BUTTON, "media_type": None, "media_file_id": None,
     }
-    await settings.update_one({"_id": "post"}, {"$setOnInsert": defaults}, upsert=True)
-    return await settings.find_one({"_id": "post"})
+    config = await settings.find_one({"_id": "post"})
+    if config is None:
+        await settings.update_one({"_id": "post"}, {"$setOnInsert": defaults}, upsert=True)
+        config = await settings.find_one({"_id": "post"})
+    POST_CONFIG_CACHE = config or defaults
+    return POST_CONFIG_CACHE
+
+
+def invalidate_config_cache():
+    global POST_CONFIG_CACHE
+    POST_CONFIG_CACHE = None
 
 
 async def home_text():
@@ -114,37 +127,32 @@ async def home_text():
 
 
 async def clear_owner_panels(chat_id: int, owner_id: int):
-    # Keep old panel IDs until the replacement panel has been sent.
-    old_panel_ids = []
-    for key in (f"home:{chat_id}", f"settings:{chat_id}"):
-        saved = await ui_state.find_one({"_id": key})
-        if saved and saved.get("message_id"):
-            old_panel_ids.append(saved["message_id"])
-        await ui_state.delete_one({"_id": key})
-    picker = await ui_state.find_one({"_id": f"picker:{owner_id}"})
-    if picker:
+    # Read and clear independent UI state concurrently to reduce command latency.
+    keys = [f"home:{chat_id}", f"settings:{chat_id}", f"picker:{owner_id}", f"prompt:{owner_id}"]
+    saved = await asyncio.gather(*(ui_state.find_one({"_id": key}) for key in keys))
+    old_panel_ids = [
+        item["message_id"] for item in saved[:2]
+        if item and item.get("message_id")
+    ]
+    await asyncio.gather(*(ui_state.delete_one({"_id": key}) for key in keys))
+    picker = saved[2]
+    if picker and picker.get("prompt_message_id"):
         try:
             await BOT.delete_message(chat_id, picker["prompt_message_id"])
-        except (TelegramAPIError, KeyError):
+        except TelegramAPIError:
             pass
-        await ui_state.delete_one({"_id": f"picker:{owner_id}"})
-    await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
     return old_panel_ids
 
 
 async def finish_owner_command(message: Message, old_panel_ids, keep_panel_id=None):
     # The fresh panel is already visible; now remove the command and previous panel(s).
-    for old_id in old_panel_ids:
-        if old_id == keep_panel_id:
-            continue
+    delete_ids = [old_id for old_id in old_panel_ids if old_id != keep_panel_id]
+    async def safe_delete(message_id):
         try:
-            await BOT.delete_message(message.chat.id, old_id)
+            await BOT.delete_message(message.chat.id, message_id)
         except TelegramAPIError:
             pass
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
+    await asyncio.gather(*(safe_delete(message_id) for message_id in delete_ids), message.delete())
 
 async def sync_chat_titles():
     async for item in chats.find({"active": True}):
@@ -208,7 +216,6 @@ async def edit_panel(message: Message, body: str, markup=None):
 
 
 async def show_settings(message: Message):
-    cfg = await get_config()
     body = (
         "<b><u>LINKS POST</u></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>"
@@ -611,6 +618,7 @@ async def cfg_default(call: CallbackQuery):
         }},
         upsert=True,
     )
+    invalidate_config_cache()
     await call.answer("✅ Successfully reset all to defaults")
     await show_settings(call.message)
 
@@ -686,6 +694,7 @@ async def owner_input(message: Message):
             }},
             upsert=True,
         )
+        invalidate_config_cache()
     elif action == "button":
         if not message.text:
             await message.answer("Please send the new button text as a text message.")
@@ -696,6 +705,7 @@ async def owner_input(message: Message):
         await settings.update_one(
             {"_id": "post"}, {"$set": {"button": message.text}}, upsert=True
         )
+        invalidate_config_cache()
     elif action == "media":
         media_type, file_id = None, None
         if message.photo:
@@ -710,6 +720,7 @@ async def owner_input(message: Message):
             {"$set": {"media_type": media_type, "media_file_id": file_id}},
             upsert=True,
         )
+        invalidate_config_cache()
     else:
         await ui_state.delete_one({"_id": f"prompt:{message.from_user.id}"})
         return
