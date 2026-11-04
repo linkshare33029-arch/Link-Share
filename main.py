@@ -129,15 +129,10 @@ async def clear_owner_panels(chat_id: int, owner_id: int):
             pass
         await ui_state.delete_one({"_id": f"picker:{owner_id}"})
     await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
-    keyboard_notice = None
-    try:
-        keyboard_notice = await BOT.send_message(chat_id, "Keyboard closed.", reply_markup=ReplyKeyboardRemove())
-    except TelegramAPIError:
-        pass
-    return old_panel_ids, keyboard_notice
+    return old_panel_ids
 
 
-async def finish_owner_command(message: Message, old_panel_ids, keyboard_notice=None, keep_panel_id=None):
+async def finish_owner_command(message: Message, old_panel_ids, keep_panel_id=None):
     # The fresh panel is already visible; now remove the command and previous panel(s).
     for old_id in old_panel_ids:
         if old_id == keep_panel_id:
@@ -150,11 +145,6 @@ async def finish_owner_command(message: Message, old_panel_ids, keyboard_notice=
         await message.delete()
     except TelegramAPIError:
         pass
-    if keyboard_notice:
-        try:
-            await BOT.delete_message(message.chat.id, keyboard_notice.message_id)
-        except TelegramAPIError:
-            pass
 
 async def sync_chat_titles():
     async for item in chats.find({"active": True}):
@@ -330,10 +320,10 @@ async def start(message: Message):
 async def owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
     fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
-    await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
+    await finish_owner_command(message, old_panel_ids, fresh.get("message_id") if fresh else None)
 
 
 @dp.message(Command("set"))
@@ -660,10 +650,10 @@ async def cfg_prompt(call: CallbackQuery):
 async def unknown_owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    old_panel_ids, keyboard_notice = await clear_owner_panels(message.chat.id, message.from_user.id)
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
     fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
-    await finish_owner_command(message, old_panel_ids, keyboard_notice, fresh.get("message_id") if fresh else None)
+    await finish_owner_command(message, old_panel_ids, fresh.get("message_id") if fresh else None)
 
 
 @dp.message()
