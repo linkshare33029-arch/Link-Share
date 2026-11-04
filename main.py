@@ -152,7 +152,15 @@ async def finish_owner_command(message: Message, old_panel_ids, keep_panel_id=No
             await BOT.delete_message(message.chat.id, message_id)
         except TelegramAPIError:
             pass
-    await asyncio.gather(*(safe_delete(message_id) for message_id in delete_ids), message.delete())
+    async def safe_delete_command():
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            pass
+    await asyncio.gather(
+        *(safe_delete(message_id) for message_id in delete_ids),
+        safe_delete_command(),
+    )
 
 async def sync_chat_titles():
     async for item in chats.find({"active": True}):
@@ -186,7 +194,6 @@ async def refresh_home_panels():
 
 
 async def render_home(message: Message, edit_existing=False):
-    await sync_chat_titles()
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
     body, markup = await home_text(), main_keyboard(items)
     panel = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
