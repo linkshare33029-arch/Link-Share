@@ -40,7 +40,7 @@ ui_state = db.owner_ui
 
 DEFAULT_CAPTION = "<blockquote><b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b></blockquote>
 <b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
-DEFAULT_BUTTON = "ᴄʟɪᴄᴋ ʜᴇʀᴇ"
+DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
 BOT: Bot
 dp = Dispatcher()
 bot_username = ""
