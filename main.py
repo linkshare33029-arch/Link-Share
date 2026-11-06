@@ -16,7 +16,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove, ReplyParameters,
+    ReplyKeyboardRemove,
 )
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -288,8 +288,11 @@ def request_chat_keyboard(kind: str):
 async def send_fresh_link(message: Message, chat_doc):
     invite = None
     try:
-        # Re-read Telegram chat metadata so public/private changes immediately affect future links.
-        live_chat = await BOT.get_chat(chat_doc["chat_id"])
+        # Fetch the current chat metadata and cached post settings concurrently.
+        live_chat, cfg = await asyncio.gather(
+            BOT.get_chat(chat_doc["chat_id"]),
+            get_config(),
+        )
         live_username = getattr(live_chat, "username", None)
         live_private = not bool(live_username)
         await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {
@@ -324,7 +327,6 @@ async def send_fresh_link(message: Message, chat_doc):
         result = await issued.insert_one(record)
         record["_id"] = result.inserted_id
         schedule_expiry(record)
-        cfg = await get_config()
         button_text = (cfg.get("button") or DEFAULT_BUTTON)[:64]
         markup = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=button_text, url=invite.invite_link)
@@ -335,7 +337,6 @@ async def send_fresh_link(message: Message, chat_doc):
         kwargs = {
             "caption": caption,
             "reply_markup": markup,
-            "reply_parameters": ReplyParameters(message_id=message.message_id),
         }
         if entities:
             kwargs["caption_entities"] = entities
@@ -352,7 +353,6 @@ async def send_fresh_link(message: Message, chat_doc):
                 entities=entities,
                 parse_mode=None if entities else ParseMode.HTML,
                 reply_markup=markup,
-                reply_parameters=ReplyParameters(message_id=message.message_id),
             )
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
         log.exception("Invite creation or link-post delivery failed for chat %s", chat_doc.get("chat_id"))
