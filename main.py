@@ -23,13 +23,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
-BOT_TOKEN_VALUES = [
-    os.environ.get("BOT_1_TOKEN", "").strip(),
-    os.environ.get("BOT_2_TOKEN", "").strip(),
-]
-BOT_TOKEN_VALUES = [value for value in BOT_TOKEN_VALUES if value]
-if not BOT_TOKEN_VALUES:
-    raise RuntimeError("Set BOT_1_TOKEN and optionally BOT_2_TOKEN in Render environment variables.")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN must be set in Render environment variables.")
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 if not OWNER_IDS:
     raise RuntimeError("OWNER must contain at least one Telegram user ID.")
@@ -1001,41 +997,36 @@ async def health(request):
 
 async def main():
     global default_bot, default_db
-    bots = [Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) for token in BOT_TOKEN_VALUES]
+    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     runner = None
     try:
-        bot_infos = {}
-        for bot in bots:
-            me = await bot.get_me()
-            if me.id in bot_infos:
-                raise RuntimeError(f"Duplicate bot token supplied for @{me.username}.")
-            bot_infos[me.id] = {"bot": bot, "username": me.username or ""}
-        bot_registry.update(bot_infos)
-        default_bot = bots[0]
+        me = await bot.get_me()
+        default_bot = bot
+        bot_registry[me.id] = {"bot": bot, "username": me.username or ""}
         dp.update.outer_middleware(active_bot_middleware)
+
         await mongo.admin.command("ping")
-        for index, bot in enumerate(bots, start=1):
-            # Keep the original database for bot 1 so its existing chats/deep links remain valid.
-            database_name = DB_NAME if index == 1 else f"{DB_NAME}_bot{index}"
-            bot_databases[bot.id] = mongo[database_name]
-        default_db = bot_databases[default_bot.id]
-        for bot in bots:
-            token = current_db.set(bot_databases[bot.id])
-            bot_token = current_bot.set(bot)
-            user_token = current_bot_user_id.set(bot.id)
-            try:
-                await get_config()
-                await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
-                await chats.create_index([("chat_id", 1)], unique=True, name="uniq_chat_id")
-                await issued.create_index([("expires_at", 1), ("revoked", 1)], name="invite_expiry")
-                await issued.create_index([("chat_id", 1), ("user_id", 1), ("created_at", -1)], name="invite_user_lookup")
-                async for record in issued.find({"revoked": False}):
-                    record.setdefault("bot_id", bot.id)
-                    schedule_expiry(record)
-            finally:
-                current_bot_user_id.reset(user_token)
-                current_bot.reset(bot_token)
-                current_db.reset(token)
+        # Single-bot mode uses the original database so existing chats and deep links stay valid.
+        bot_databases[bot.id] = mongo[DB_NAME]
+        default_db = bot_databases[bot.id]
+
+        db_token = current_db.set(default_db)
+        bot_token = current_bot.set(bot)
+        username_token = current_bot_username.set(me.username or "")
+        user_id_token = current_bot_user_id.set(bot.id)
+        try:
+            await get_config()
+            await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
+            await chats.create_index([("chat_id", 1)], unique=True, name="uniq_chat_id")
+            await issued.create_index([("expires_at", 1), ("revoked", 1)], name="invite_expiry")
+            await issued.create_index([("chat_id", 1), ("user_id", 1), ("created_at", -1)], name="invite_user_lookup")
+            async for record in issued.find({"revoked": False}):
+                schedule_expiry(record)
+        finally:
+            current_bot_user_id.reset(user_id_token)
+            current_bot_username.reset(username_token)
+            current_bot.reset(bot_token)
+            current_db.reset(db_token)
 
         public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
         webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
@@ -1051,19 +1042,18 @@ async def main():
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000")))
             await site.start()
-            for bot_id, info in bot_infos.items():
-                await info["bot"].set_webhook(
-                    url=f"{public_url}/telegram/webhook/{bot_id}",
-                    secret_token=webhook_secret,
-                    allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
-                    drop_pending_updates=False,
-                )
-                log.info("Webhook active for @%s at %s/telegram/webhook/%s", info["username"], public_url, bot_id)
+            await bot.set_webhook(
+                url=f"{public_url}/telegram/webhook/{bot.id}",
+                secret_token=webhook_secret,
+                allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
+                drop_pending_updates=False,
+            )
+            log.info("Webhook active for @%s at %s/telegram/webhook/%s", me.username, public_url, bot.id)
             await asyncio.Event().wait()
         else:
             log.warning("RENDER_EXTERNAL_URL missing; using polling fallback.")
             await dp.start_polling(
-                *bots,
+                bot,
                 allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
             )
     finally:
@@ -1073,7 +1063,7 @@ async def main():
             await asyncio.gather(*list(expiry_tasks.values()), return_exceptions=True)
         if runner:
             await runner.cleanup()
-        await asyncio.gather(*(bot.session.close() for bot in bots), return_exceptions=True)
+        await bot.session.close()
         mongo.close()
 
 
