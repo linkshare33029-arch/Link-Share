@@ -24,12 +24,12 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
 BOT_TOKEN_VALUES = [
-    (os.environ.get("BOT_1_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip(),
+    os.environ.get("BOT_1_TOKEN", "").strip(),
     os.environ.get("BOT_2_TOKEN", "").strip(),
 ]
 BOT_TOKEN_VALUES = [value for value in BOT_TOKEN_VALUES if value]
 if not BOT_TOKEN_VALUES:
-    raise RuntimeError("Set BOT_1_TOKEN (or legacy BOT_TOKEN) and optionally BOT_2_TOKEN.")
+    raise RuntimeError("Set BOT_1_TOKEN and optionally BOT_2_TOKEN in Render environment variables.")
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 if not OWNER_IDS:
     raise RuntimeError("OWNER must contain at least one Telegram user ID.")
@@ -47,7 +47,9 @@ class CollectionProxy:
     def __init__(self, name):
         self.name = name
     def __getattr__(self, attr):
-        active_db = current_db.get() or default_db
+        active_db = current_db.get()
+        if active_db is None:
+            active_db = default_db
         if active_db is None:
             raise RuntimeError("No bot database is available in the current context.")
         return getattr(active_db[self.name], attr)
