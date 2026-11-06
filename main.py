@@ -23,9 +23,13 @@ from motor.motor_asyncio import AsyncIOMotorClient
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
-BOT_TOKEN_VALUES = [os.environ.get("BOT_1_TOKEN", "").strip(), os.environ.get("BOT_2_TOKEN", "").strip()]
-if not all(BOT_TOKEN_VALUES):
-    raise RuntimeError("Both BOT_1_TOKEN and BOT_2_TOKEN must be set.")
+BOT_TOKEN_VALUES = [
+    (os.environ.get("BOT_1_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip(),
+    os.environ.get("BOT_2_TOKEN", "").strip(),
+]
+BOT_TOKEN_VALUES = [value for value in BOT_TOKEN_VALUES if value]
+if not BOT_TOKEN_VALUES:
+    raise RuntimeError("Set BOT_1_TOKEN (or legacy BOT_TOKEN) and optionally BOT_2_TOKEN.")
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 if not OWNER_IDS:
     raise RuntimeError("OWNER must contain at least one Telegram user ID.")
