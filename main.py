@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import html
 import logging
 import os
@@ -22,7 +23,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
-BOT_TOKEN = os.environ["BOT_TOKEN"].strip()
+BOT_TOKENS = [value.strip() for value in os.environ["BOT_TOKEN"].split(",") if value.strip()]
+if not BOT_TOKENS:
+    raise RuntimeError("BOT_TOKEN must contain at least one Telegram bot token.")
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 if not OWNER_IDS:
     raise RuntimeError("OWNER must contain at least one Telegram user ID.")
@@ -40,10 +43,22 @@ ui_state = db.owner_ui
 
 DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
-BOT: Bot
+class ActiveBotProxy:
+    """Resolve Telegram API calls to the bot handling the current update/task."""
+    def __getattr__(self, name):
+        active = current_bot.get() or default_bot
+        if active is None:
+            raise RuntimeError("No active Telegram bot is available.")
+        return getattr(active, name)
+
+
+default_bot = None
+current_bot = contextvars.ContextVar("current_bot", default=None)
+current_bot_username = contextvars.ContextVar("current_bot_username", default="")
+current_bot_user_id = contextvars.ContextVar("current_bot_user_id", default=0)
+bot_registry = {}
+BOT = ActiveBotProxy()
 dp = Dispatcher()
-bot_username = ""
-bot_user_id = 0
 expiry_tasks = {}
 POST_CONFIG_CACHE = None
 
@@ -276,6 +291,7 @@ async def send_fresh_link(message: Message, chat_doc):
             "code": chat_doc["code"],
             "chat_title": chat_doc.get("title", str(chat_doc["chat_id"])),
             "user_id": message.from_user.id,
+            "bot_id": current_bot_user_id.get(),
             "created_at": datetime.now(timezone.utc),
             "expires_at": expires_at,
             "revoked": False,
@@ -518,7 +534,7 @@ async def chat_shared(message: Message):
         shared = message.chat_shared
         chat, member = await asyncio.gather(
             BOT.get_chat(shared.chat_id),
-            BOT.get_chat_member(shared.chat_id, bot_user_id),
+            BOT.get_chat_member(shared.chat_id, current_bot_user_id.get()),
         )
         if member.status not in {"administrator", "creator"}:
             await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
@@ -609,7 +625,7 @@ async def chat_detail(call: CallbackQuery):
     if not item:
         await call.answer("Chat not found", show_alert=True)
         return
-    deep_link = f"https://t.me/{bot_username}?start={code}"
+    deep_link = f"https://t.me/{current_bot_username.get()}?start={code}"
     body = (
         f"<i>Chat Name:</i> {html.escape(item['title'])}\n\n"
         f"<i>Deeplink:</i> <code>{html.escape(deep_link)}</code>"
@@ -894,14 +910,34 @@ async def expire_one_link(record):
             expiry_tasks.pop(key, None)
 
 
+async def active_bot_middleware(handler, event, data):
+    bot = data.get("bot")
+    if bot is None:
+        return await handler(event, data)
+    me = bot_registry.get(bot.id, {})
+    bot_token = current_bot.set(bot)
+    username_token = current_bot_username.set(me.get("username", ""))
+    user_id_token = current_bot_user_id.set(bot.id)
+    try:
+        return await handler(event, data)
+    finally:
+        current_bot.reset(bot_token)
+        current_bot_username.reset(username_token)
+        current_bot_user_id.reset(user_id_token)
+
+
 async def telegram_webhook(request):
+    bot_id = int(request.match_info["bot_id"])
+    bot = request.app["bots"].get(bot_id)
+    if bot is None:
+        raise web.HTTPNotFound()
     secret = request.app.get("webhook_secret")
     if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
         raise web.HTTPUnauthorized()
     try:
         from aiogram.types import Update
-        update = Update.model_validate(await request.json(), context={"bot": BOT})
-        await dp.feed_update(BOT, update)
+        update = Update.model_validate(await request.json(), context={"bot": bot})
+        await dp.feed_update(bot, update)
     except Exception:
         log.exception("Failed to process Telegram webhook update")
         raise web.HTTPInternalServerError()
@@ -918,13 +954,19 @@ async def health(request):
 
 
 async def main():
-    global BOT, bot_username, bot_user_id
-    BOT = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    global default_bot
+    bots = [Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) for token in BOT_TOKENS]
     runner = None
     try:
-        me = await BOT.get_me()
-        bot_username = me.username or ""
-        bot_user_id = me.id
+        bot_infos = {}
+        for bot in bots:
+            me = await bot.get_me()
+            if me.id in bot_infos:
+                raise RuntimeError(f"Duplicate bot token supplied for @{me.username}.")
+            bot_infos[me.id] = {"bot": bot, "username": me.username or ""}
+        bot_registry.update(bot_infos)
+        default_bot = bots[0]
+        dp.update.outer_middleware(active_bot_middleware)
         await mongo.admin.command("ping")
         await get_config()
         await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
@@ -934,33 +976,37 @@ async def main():
 
         # Restore one independent timer per outstanding invite after a process restart.
         async for record in issued.find({"revoked": False}):
+            if not record.get("bot_id"):
+                record["bot_id"] = next(iter(bot_infos))
             schedule_expiry(record)
 
         public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
         webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
         app = web.Application()
         app["webhook_secret"] = webhook_secret
+        app["bots"] = bot_registry
         app.router.add_get("/", health)
         app.router.add_get("/health", health)
 
         if public_url:
-            app.router.add_post("/telegram/webhook", telegram_webhook)
+            app.router.add_post("/telegram/webhook/{bot_id}", telegram_webhook)
             runner = web.AppRunner(app)
             await runner.setup()
             site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", "10000")))
             await site.start()
-            await BOT.set_webhook(
-                url=f"{public_url}/telegram/webhook",
-                secret_token=webhook_secret,
-                allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
-                drop_pending_updates=False,
-            )
-            log.info("Webhook active at %s/telegram/webhook; polling disabled.", public_url)
+            for bot_id, info in bot_infos.items():
+                await info["bot"].set_webhook(
+                    url=f"{public_url}/telegram/webhook/{bot_id}",
+                    secret_token=webhook_secret,
+                    allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
+                    drop_pending_updates=False,
+                )
+                log.info("Webhook active for @%s at %s/telegram/webhook/%s", info["username"], public_url, bot_id)
             await asyncio.Event().wait()
         else:
             log.warning("RENDER_EXTERNAL_URL missing; using polling fallback.")
             await dp.start_polling(
-                BOT,
+                *bots,
                 allowed_updates=["message", "channel_post", "callback_query", "chat_member", "chat_join_request"],
             )
     finally:
@@ -970,7 +1016,7 @@ async def main():
             await asyncio.gather(*list(expiry_tasks.values()), return_exceptions=True)
         if runner:
             await runner.cleanup()
-        await BOT.session.close()
+        await asyncio.gather(*(bot.session.close() for bot in bots), return_exceptions=True)
         mongo.close()
 
 
