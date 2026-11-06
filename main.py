@@ -866,6 +866,14 @@ def schedule_expiry(record):
 
 async def expire_one_link(record):
     key = str(record["_id"])
+    # Restored expiry tasks must revoke through the same bot that created the invite.
+    info = bot_registry.get(record.get("bot_id")) or bot_registry.get(default_bot.id)
+    if info:
+        bot_token = current_bot.set(info["bot"])
+        username_token = current_bot_username.set(info.get("username", ""))
+        user_id_token = current_bot_user_id.set(info["bot"].id)
+    else:
+        bot_token = username_token = user_id_token = None
     try:
         expires_at = record["expires_at"]
         if expires_at.tzinfo is None:
@@ -908,6 +916,10 @@ async def expire_one_link(record):
     finally:
         if expiry_tasks.get(key) is asyncio.current_task():
             expiry_tasks.pop(key, None)
+        if bot_token is not None:
+            current_bot.reset(bot_token)
+            current_bot_username.reset(username_token)
+            current_bot_user_id.reset(user_id_token)
 
 
 async def active_bot_middleware(handler, event, data):
