@@ -38,7 +38,7 @@ settings = db.settings
 issued = db.issued_links
 ui_state = db.owner_ui
 
-DEFAULT_CAPTION = "ʜᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ! ᴄʟɪᴄᴋ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:"
+DEFAULT_CAPTION = "<blockquote><b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!<i></b>\n<b><i>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:<i><b></blockquote>"
 DEFAULT_BUTTON = "ᴄʟɪᴄᴋ ʜᴇʀᴇ"
 BOT: Bot
 dp = Dispatcher()
