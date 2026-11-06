@@ -970,9 +970,11 @@ async def active_bot_middleware(handler, event, data):
 
 async def telegram_webhook(request):
     bot_id = int(request.match_info["bot_id"])
-    bot = request.app["bots"].get(bot_id)
-    if bot is None:
+    bot_info = request.app["bots"].get(bot_id)
+    if bot_info is None:
         raise web.HTTPNotFound()
+    # bot_registry stores metadata; aiogram requires the actual Bot instance.
+    bot = bot_info["bot"]
     secret = request.app.get("webhook_secret")
     if not secret or request.headers.get("X-Telegram-Bot-Api-Secret-Token") != secret:
         raise web.HTTPUnauthorized()
