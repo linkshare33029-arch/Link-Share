@@ -38,7 +38,7 @@ settings = db.settings
 issued = db.issued_links
 ui_state = db.owner_ui
 
-DEFAULT_CAPTION = "<blockquote><b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b></blockquote><b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
+DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
 BOT: Bot
 dp = Dispatcher()
@@ -110,6 +110,14 @@ async def get_config():
         "button": DEFAULT_BUTTON, "media_type": None, "media_file_id": None,
     }
     config = await settings.find_one({"_id": "post"})
+    old_default_caption = "<blockquote><b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b></blockquote><b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
+    if config and config.get("caption") == old_default_caption:
+        await settings.update_one(
+            {"_id": "post"},
+            {"$set": {"caption": DEFAULT_CAPTION, "caption_entities": []}},
+        )
+        config["caption"] = DEFAULT_CAPTION
+        config["caption_entities"] = []
     if config is None:
         await settings.update_one({"_id": "post"}, {"$setOnInsert": defaults}, upsert=True)
         config = await settings.find_one({"_id": "post"})
@@ -283,19 +291,28 @@ async def send_fresh_link(message: Message, chat_doc):
         caption = cfg.get("caption", DEFAULT_CAPTION)
         entities = cfg.get("caption_entities") or None
         media_id, media_type = cfg.get("media_file_id"), cfg.get("media_type")
-        kwargs = {"caption": caption, "reply_markup": markup}
+        kwargs = {
+            "caption": caption,
+            "reply_markup": markup,
+            "reply_parameters": ReplyParameters(message_id=message.message_id),
+        }
         if entities:
             kwargs["caption_entities"] = entities
             kwargs["parse_mode"] = None
         else:
-            kwargs["parse_mode"] = None
+            kwargs["parse_mode"] = ParseMode.HTML
         if media_id and media_type == "photo":
             await message.answer_photo(media_id, **kwargs)
         elif media_id and media_type == "animation":
             await message.answer_animation(media_id, **kwargs)
         else:
-            await message.answer(caption, entities=entities, parse_mode=None,
-                                 reply_markup=markup)
+            await message.answer(
+                caption,
+                entities=entities,
+                parse_mode=None if entities else ParseMode.HTML,
+                reply_markup=markup,
+                reply_parameters=ReplyParameters(message_id=message.message_id),
+            )
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
         log.exception("Invite creation or link-post delivery failed for chat %s", chat_doc.get("chat_id"))
         if invite:
