@@ -16,32 +16,44 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
+    ReplyKeyboardRemove, ReplyParameters,
 )
 from motor.motor_asyncio import AsyncIOMotorClient
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
 
-BOT_TOKENS = [value.strip() for value in os.environ["BOT_TOKEN"].split(",") if value.strip()]
-if not BOT_TOKENS:
-    raise RuntimeError("BOT_TOKEN must contain at least one Telegram bot token.")
+BOT_TOKEN_VALUES = [os.environ.get("BOT_1_TOKEN", "").strip(), os.environ.get("BOT_2_TOKEN", "").strip()]
+if not all(BOT_TOKEN_VALUES):
+    raise RuntimeError("Both BOT_1_TOKEN and BOT_2_TOKEN must be set.")
 OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
 if not OWNER_IDS:
     raise RuntimeError("OWNER must contain at least one Telegram user ID.")
 MONGO_URI = os.environ.get("URI", "").strip()
 DB_NAME = os.environ.get("DB_NAME", "link_share").strip() or "link_share"
-if not BOT_TOKEN or not MONGO_URI:
-    raise RuntimeError("BOT_TOKEN and URI must be set in Render environment variables.")
+if not MONGO_URI:
+    raise RuntimeError("URI must be set in Render environment variables.")
 
 mongo = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=20000, connectTimeoutMS=20000)
-db = mongo[DB_NAME]
-chats = db.chats
-settings = db.settings
-issued = db.issued_links
-ui_state = db.owner_ui
+default_db = None
+current_db = contextvars.ContextVar("current_db", default=None)
+bot_databases = {}
 
-DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
+class CollectionProxy:
+    def __init__(self, name):
+        self.name = name
+    def __getattr__(self, attr):
+        active_db = current_db.get() or default_db
+        if active_db is None:
+            raise RuntimeError("No bot database is available in the current context.")
+        return getattr(active_db[self.name], attr)
+
+chats = CollectionProxy("chats")
+settings = CollectionProxy("settings")
+issued = CollectionProxy("issued_links")
+ui_state = CollectionProxy("owner_ui")
+
+DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
 class ActiveBotProxy:
     """Resolve Telegram API calls to the bot handling the current update/task."""
@@ -60,7 +72,7 @@ bot_registry = {}
 BOT = ActiveBotProxy()
 dp = Dispatcher()
 expiry_tasks = {}
-POST_CONFIG_CACHE = None
+POST_CONFIG_CACHE = {}
 
 
 def is_owner(user_id: int) -> bool:
@@ -117,9 +129,9 @@ def detail_keyboard(code):
 
 
 async def get_config():
-    global POST_CONFIG_CACHE
-    if POST_CONFIG_CACHE is not None:
-        return POST_CONFIG_CACHE
+    cache_key = current_bot_user_id.get()
+    if cache_key in POST_CONFIG_CACHE:
+        return POST_CONFIG_CACHE[cache_key]
     defaults = {
         "_id": "post", "caption": DEFAULT_CAPTION, "caption_entities": [],
         "button": DEFAULT_BUTTON, "media_type": None, "media_file_id": None,
@@ -136,13 +148,12 @@ async def get_config():
     if config is None:
         await settings.update_one({"_id": "post"}, {"$setOnInsert": defaults}, upsert=True)
         config = await settings.find_one({"_id": "post"})
-    POST_CONFIG_CACHE = config or defaults
-    return POST_CONFIG_CACHE
+    POST_CONFIG_CACHE[cache_key] = config or defaults
+    return POST_CONFIG_CACHE[cache_key]
 
 
 def invalidate_config_cache():
-    global POST_CONFIG_CACHE
-    POST_CONFIG_CACHE = None
+    POST_CONFIG_CACHE.pop(current_bot_user_id.get(), None)
 
 
 async def home_text():
@@ -275,6 +286,18 @@ def request_chat_keyboard(kind: str):
 async def send_fresh_link(message: Message, chat_doc):
     invite = None
     try:
+        # Re-read Telegram chat metadata so public/private changes immediately affect future links.
+        live_chat = await BOT.get_chat(chat_doc["chat_id"])
+        live_username = getattr(live_chat, "username", None)
+        live_private = not bool(live_username)
+        await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {
+            "title": live_chat.title or chat_doc.get("title"),
+            "username": live_username,
+            "is_private": live_private,
+        }})
+        chat_doc["is_private"] = live_private
+        chat_doc["username"] = live_username
+        chat_doc["title"] = live_chat.title or chat_doc.get("title")
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
         invite_args = {
             "chat_id": chat_doc["chat_id"],
@@ -869,11 +892,12 @@ async def expire_one_link(record):
     # Restored expiry tasks must revoke through the same bot that created the invite.
     info = bot_registry.get(record.get("bot_id")) or bot_registry.get(default_bot.id)
     if info:
+        db_token = current_db.set(bot_databases[info["bot"].id])
         bot_token = current_bot.set(info["bot"])
         username_token = current_bot_username.set(info.get("username", ""))
         user_id_token = current_bot_user_id.set(info["bot"].id)
     else:
-        bot_token = username_token = user_id_token = None
+        db_token = bot_token = username_token = user_id_token = None
     try:
         expires_at = record["expires_at"]
         if expires_at.tzinfo is None:
@@ -916,6 +940,8 @@ async def expire_one_link(record):
     finally:
         if expiry_tasks.get(key) is asyncio.current_task():
             expiry_tasks.pop(key, None)
+        if db_token is not None:
+            current_db.reset(db_token)
         if bot_token is not None:
             current_bot.reset(bot_token)
             current_bot_username.reset(username_token)
@@ -927,12 +953,14 @@ async def active_bot_middleware(handler, event, data):
     if bot is None:
         return await handler(event, data)
     me = bot_registry.get(bot.id, {})
+    db_token = current_db.set(bot_databases[bot.id])
     bot_token = current_bot.set(bot)
     username_token = current_bot_username.set(me.get("username", ""))
     user_id_token = current_bot_user_id.set(bot.id)
     try:
         return await handler(event, data)
     finally:
+        current_db.reset(db_token)
         current_bot.reset(bot_token)
         current_bot_username.reset(username_token)
         current_bot_user_id.reset(user_id_token)
@@ -966,8 +994,8 @@ async def health(request):
 
 
 async def main():
-    global default_bot
-    bots = [Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) for token in BOT_TOKENS]
+    global default_bot, default_db
+    bots = [Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)) for token in BOT_TOKEN_VALUES]
     runner = None
     try:
         bot_infos = {}
@@ -980,17 +1008,28 @@ async def main():
         default_bot = bots[0]
         dp.update.outer_middleware(active_bot_middleware)
         await mongo.admin.command("ping")
-        await get_config()
-        await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
-        await chats.create_index([("chat_id", 1)], unique=True, name="uniq_chat_id")
-        await issued.create_index([("expires_at", 1), ("revoked", 1)], name="invite_expiry")
-        await issued.create_index([("chat_id", 1), ("user_id", 1), ("created_at", -1)], name="invite_user_lookup")
-
-        # Restore one independent timer per outstanding invite after a process restart.
-        async for record in issued.find({"revoked": False}):
-            if not record.get("bot_id"):
-                record["bot_id"] = next(iter(bot_infos))
-            schedule_expiry(record)
+        for index, bot in enumerate(bots, start=1):
+            # Keep the original database for bot 1 so its existing chats/deep links remain valid.
+            database_name = DB_NAME if index == 1 else f"{DB_NAME}_bot{index}"
+            bot_databases[bot.id] = mongo[database_name]
+        default_db = bot_databases[default_bot.id]
+        for bot in bots:
+            token = current_db.set(bot_databases[bot.id])
+            bot_token = current_bot.set(bot)
+            user_token = current_bot_user_id.set(bot.id)
+            try:
+                await get_config()
+                await chats.create_index("code", unique=True, sparse=True, name="uniq_chat_deepcode")
+                await chats.create_index([("chat_id", 1)], unique=True, name="uniq_chat_id")
+                await issued.create_index([("expires_at", 1), ("revoked", 1)], name="invite_expiry")
+                await issued.create_index([("chat_id", 1), ("user_id", 1), ("created_at", -1)], name="invite_user_lookup")
+                async for record in issued.find({"revoked": False}):
+                    record.setdefault("bot_id", bot.id)
+                    schedule_expiry(record)
+            finally:
+                current_bot_user_id.reset(user_token)
+                current_bot.reset(bot_token)
+                current_db.reset(token)
 
         public_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
         webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
