@@ -14,7 +14,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
+    BotCommand, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -1037,6 +1037,12 @@ async def main():
     runner = None
     try:
         me = await bot.get_me()
+        await bot.set_my_commands([
+            BotCommand(command="start", description="Open a link or get your access link"),
+            BotCommand(command="admin", description="Open the owner control panel"),
+            BotCommand(command="owner", description="Open the owner control panel"),
+        ])
+        log.info("Bot command menu registered successfully.")
         default_bot = bot
         bot_registry[me.id] = {"bot": bot, "username": me.username or ""}
         dp.update.outer_middleware(active_bot_middleware)
