@@ -26,9 +26,43 @@ log = logging.getLogger("link-share")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN must be set in Render environment variables.")
-OWNER_IDS = {int(value.strip()) for value in os.environ["OWNER"].split(",") if value.strip()}
-if not OWNER_IDS:
-    raise RuntimeError("OWNER must contain at least one Telegram user ID.")
+def load_owner_ids() -> set[int]:
+    """Load all owners from the supported OWNER_ID environment variables."""
+    values = []
+    for name in ("OWNER_ID", "OWNER_IDS"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            values.append((name, value))
+
+    for name, value in os.environ.items():
+        if name.startswith("OWNER_ID_") and name[len("OWNER_ID_"):].isdigit():
+            if value.strip():
+                values.append((name, value.strip()))
+
+    owner_ids = set()
+    for name, raw_value in values:
+        for item in raw_value.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                owner_id = int(item)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"{name} must contain only comma-separated Telegram user IDs."
+                ) from exc
+            if owner_id <= 0:
+                raise RuntimeError(f"{name} contains an invalid Telegram user ID: {item}")
+            owner_ids.add(owner_id)
+
+    if not owner_ids:
+        raise RuntimeError(
+            "Set at least one owner using OWNER_ID, OWNER_IDS, or OWNER_ID_2 (and so on)."
+        )
+    return owner_ids
+
+
+OWNER_IDS = load_owner_ids()
 MONGO_URI = os.environ.get("URI", "").strip()
 DB_NAME = os.environ.get("DB_NAME", "link_share").strip() or "link_share"
 if not MONGO_URI:
