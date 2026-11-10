@@ -1049,7 +1049,6 @@ async def main():
         me = await bot.get_me()
         # Request only the admin capability required by Link Share: creating invite links.
         invite_admin_rights = ChatAdministratorRights(
-            can_manage_chat=True,
             can_invite_users=True,
         )
         await bot.set_my_default_administrator_rights(
