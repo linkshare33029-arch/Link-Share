@@ -397,8 +397,7 @@ async def send_fresh_link(message: Message, chat_doc):
                 log.exception("Could not revoke an undelivered invite")
         await message.answer(
             "I couldn't create or send the invite. Please check that I'm an administrator "
-            "with permission to invite users in that chat."
-        )
+            "with permission to invite users in that chat."        )
     except Exception:
         log.exception("Unexpected link delivery error")
         if invite:
@@ -797,8 +796,7 @@ async def owner_input(message: Message):
             )
             return
         entities = message.entities if message.text else message.caption_entities
-        await settings.update_one(
-            {"_id": "post"},
+        await settings.update_one(            {"_id": "post"},
             {"$set": {
                 "caption": text_value,
                 "caption_entities": [e.model_dump(mode="json", exclude_none=True) for e in (entities or [])],
@@ -1049,7 +1047,17 @@ async def main():
         me = await bot.get_me()
         # Request only the admin capability required by Link Share: creating invite links.
         invite_admin_rights = ChatAdministratorRights(
+            is_anonymous=False,
+            can_manage_chat=False,
+            can_delete_messages=False,
+            can_manage_video_chats=False,
+            can_restrict_members=False,
+            can_promote_members=False,
+            can_change_info=False,
             can_invite_users=True,
+            can_post_stories=False,
+            can_edit_stories=False,
+            can_delete_stories=False,
         )
         await bot.set_my_default_administrator_rights(
             rights=invite_admin_rights,
