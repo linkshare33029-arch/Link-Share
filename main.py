@@ -14,7 +14,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    BotCommand, BotCommandScopeChat, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
+    BotCommand, BotCommandScopeChat, ChatAdministratorRights, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -1047,6 +1047,19 @@ async def main():
     runner = None
     try:
         me = await bot.get_me()
+        # Request only the admin capability required by Link Share: creating invite links.
+        invite_admin_rights = ChatAdministratorRights(
+            can_manage_chat=True,
+            can_invite_users=True,
+        )
+        await bot.set_my_default_administrator_rights(
+            rights=invite_admin_rights,
+            for_channels=False,
+        )
+        await bot.set_my_default_administrator_rights(
+            rights=invite_admin_rights,
+            for_channels=True,
+        )
         # Public users see only /start. Each configured owner gets the full menu
         # in their private chat; authorization is still enforced by every handler.
         await bot.set_my_commands([
