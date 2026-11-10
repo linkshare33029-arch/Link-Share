@@ -438,7 +438,7 @@ async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
     sent = await message.answer(
-        "<b><u>LINKS POST</u></b>\\n\\n"
+        "<b><u>LINKS POST</u></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
         reply_markup=settings_keyboard(),
     )
