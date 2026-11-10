@@ -14,7 +14,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    BotCommand, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
+    BotCommand, BotCommandScopeChat, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -437,6 +437,16 @@ async def owner_command(message: Message):
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    sent = await message.answer(
+        "<b><u>LINKS POST</u></b>\\n\\n"
+        "<i>Edit caption, media, and button using the buttons below:</i>",
+        reply_markup=settings_keyboard(),
+    )
+    await ui_state.update_one(
+        {"_id": f"settings:{message.chat.id}"},
+        {"$set": {"message_id": sent.message_id}},
+        upsert=True,
+    )
     try:
         await message.delete()
     except TelegramAPIError:
@@ -1037,12 +1047,26 @@ async def main():
     runner = None
     try:
         me = await bot.get_me()
+        # Public users see only /start. Each configured owner gets the full menu
+        # in their private chat; authorization is still enforced by every handler.
         await bot.set_my_commands([
-            BotCommand(command="start", description="Open a link or get your access link"),
-            BotCommand(command="admin", description="Open the owner control panel"),
-            BotCommand(command="owner", description="Open the owner control panel"),
+            BotCommand(command="start", description="✨ Start The Adventure"),
         ])
-        log.info("Bot command menu registered successfully.")
+        owner_commands = [
+            BotCommand(command="start", description="✨ Start The Adventure"),
+            BotCommand(command="admin", description="Open the full owner control panel"),
+            BotCommand(command="owner", description="Alias for the owner control panel"),
+            BotCommand(command="set", description="Open Link Post settings"),
+        ]
+        for owner_id in OWNER_IDS:
+            await bot.set_my_commands(
+                owner_commands,
+                scope=BotCommandScopeChat(chat_id=owner_id),
+            )
+        log.info(
+            "Bot command menus registered: public=/start; owner chats=%s",
+            len(OWNER_IDS),
+        )
         default_bot = bot
         bot_registry[me.id] = {"bot": bot, "username": me.username or ""}
         dp.update.outer_middleware(active_bot_middleware)
