@@ -397,7 +397,9 @@ async def send_fresh_link(message: Message, chat_doc):
                 log.exception("Could not revoke an undelivered invite")
         await message.answer(
             "I couldn't create or send the invite. Please check that I'm an administrator "
-            "with permission to invite users in that chat."        )    except Exception:
+            "with permission to invite users in that chat."
+        )
+    except Exception:
         log.exception("Unexpected link delivery error")
         if invite:
             try:
