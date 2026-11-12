@@ -45,7 +45,8 @@ The bot uses database `link_share` and collections `chats`, `settings`, `issued_
 ## Operational notes
 
 - When `RENDER_EXTERNAL_URL` is available, the bot runs an HTTP webhook server; otherwise it falls back to long polling.
-- While idle, the process waits for Telegram updates, answers Render health checks with a MongoDB ping, and keeps only scheduled invite-expiry tasks sleeping until their deadlines. It does not continuously scan Telegram chats or users.
+- While idle, the process waits for Telegram webhook updates and keeps scheduled invite-expiry tasks sleeping until their deadlines. It does not continuously scan Telegram chats or users.
+- The Render service currently uses its default TCP health probe because no HTTP health-check path is configured. The app also exposes `/` and `/health`; requests to either endpoint perform a MongoDB ping and return the database health result.
 - Expired invites are revoked by their scheduled tasks; failed revocations are retried three more times at 30-second intervals and then reported to owners.
 - The bot needs to remain running to receive updates and revoke expired invites promptly.
 - Render Free Web Services can spin down after inactivity. For continuous 24/7 polling, use a paid always-on Render service.
