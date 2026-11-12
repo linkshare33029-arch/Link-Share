@@ -625,10 +625,10 @@ async def start_settings_callback(call: CallbackQuery):
         "start_help": "Send detailed /help text as text (HTML is supported).",
         "start_media": "Send one photo or GIF to use on both /start and /help.",
         "start_about": "Send the About page details as text (HTML is supported).",
-        "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend /skip to remove it.",
-        "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend /skip to remove it.",
-        "start_button_3": "Send Button 3 as: Button Name | https://example.com\nSend /skip to remove it.",
-        "start_button_4": "Send Button 4 as: Button Name | https://example.com\nSend /skip to remove it.",
+        "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend REMOVE to remove it.",
+        "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend REMOVE to remove it.",
+        "start_button_3": "Send Button 3 as: Button Name | https://example.com\nSend REMOVE to remove it.",
+        "start_button_4": "Send Button 4 as: Button Name | https://example.com\nSend REMOVE to remove it.",
     }
     await call.answer()
     await edit_panel(call.message, prompts[prompt_action], InlineKeyboardMarkup(inline_keyboard=[
@@ -1015,17 +1015,30 @@ async def owner_input(message: Message):
         if value is None:
             await message.answer("Please send text for the Start caption.")
             return
+        start_cfg = await get_start_config()
+        limit = 1024 if start_cfg.get("media_file_id") else 4096
+        if len(value) > limit:
+            await message.answer(f"Start caption is too long. Current Telegram limit is {limit} characters.")
+            return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
     elif action == "start_help":
         value = message.text or message.caption
         if value is None:
             await message.answer("Please send text for the Help details.")
             return
+        if len(value) > 4096:
+            await message.answer("Help details are too long. Telegram allows up to 4096 characters.")
+            return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"help_text": value}}, upsert=True)
     elif action == "start_about":
         value = message.text or message.caption
         if value is None:
             await message.answer("Please send text for the About page.")
+            return
+        about_cfg = await get_start_config()
+        limit = 1024 if about_cfg.get("media_file_id") else 4096
+        if len(value) > limit:
+            await message.answer(f"About text is too long. Current Telegram limit is {limit} characters.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_text": value}}, upsert=True)
     elif action == "start_media":
@@ -1041,7 +1054,7 @@ async def owner_input(message: Message):
         }}, upsert=True)
     elif action.startswith("start_button_"):
         index = action.rsplit("_", 1)[1]
-        if message.text and message.text.strip().lower() == "/skip":
+        if message.text and message.text.strip().lower() in {"remove", "none"}:
             label, url = "", ""
         elif message.text and "|" in message.text:
             label, url = [part.strip() for part in message.text.split("|", 1)]
@@ -1050,7 +1063,7 @@ async def owner_input(message: Message):
                 await message.answer("Invalid format. Send: Button Name | https://example.com")
                 return
         else:
-            await message.answer("Send: Button Name | https://example.com (or /skip to remove).")
+            await message.answer("Send: Button Name | https://example.com (or REMOVE to remove).")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
             f"button{index}_text": label, f"button{index}_url": url,
@@ -1283,7 +1296,7 @@ async def active_bot_middleware(handler, event, data):
     user_id_token = current_bot_user_id.set(bot.id)
     try:
         event_message = event if isinstance(event, Message) else getattr(event, "message", None)
-        user = getattr(event_message, "from_user", None)
+        user = getattr(event, "from_user", None)
         if user is not None and getattr(getattr(event_message, "chat", None), "type", None) == "private":
             try:
                 await track_user_id(user.id)
