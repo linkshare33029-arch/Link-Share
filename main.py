@@ -600,13 +600,13 @@ async def start_settings_callback(call: CallbackQuery):
         await settings.update_one({"_id": START_CONFIG_ID},
             {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
         await call.answer("Start media removed")
-        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\\n\\nMedia removed.", start_settings_keyboard())
+        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\n\nMedia removed.", start_settings_keyboard())
         return
     if action == "reset":
         values = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": values}, upsert=True)
         await call.answer("Start settings reset")
-        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\\n\\nSettings reset to defaults.", start_settings_keyboard())
+        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\n\nSettings reset to defaults.", start_settings_keyboard())
         return
     prompt_action = {
         "caption": "start_caption", "help": "start_help", "media": "start_media",
@@ -625,10 +625,10 @@ async def start_settings_callback(call: CallbackQuery):
         "start_help": "Send detailed /help text as text (HTML is supported).",
         "start_media": "Send one photo or GIF to use on both /start and /help.",
         "start_about": "Send the About page details as text (HTML is supported).",
-        "start_button_1": "Send Button 1 as: Button Name | https://example.com\\nSend /skip to remove it.",
-        "start_button_2": "Send Button 2 as: Button Name | https://example.com\\nSend /skip to remove it.",
-        "start_button_3": "Send Button 3 as: Button Name | https://example.com\\nSend /skip to remove it.",
-        "start_button_4": "Send Button 4 as: Button Name | https://example.com\\nSend /skip to remove it.",
+        "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend /skip to remove it.",
+        "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend /skip to remove it.",
+        "start_button_3": "Send Button 3 as: Button Name | https://example.com\nSend /skip to remove it.",
+        "start_button_4": "Send Button 4 as: Button Name | https://example.com\nSend /skip to remove it.",
     }
     await call.answer()
     await edit_panel(call.message, prompts[prompt_action], InlineKeyboardMarkup(inline_keyboard=[
@@ -1114,14 +1114,14 @@ async def owner_input(message: Message):
     try:
         if action.startswith("start_"):
             await BOT.edit_message_text(
-                "<b><u>START MESSAGE SETTINGS</u></b>\\n\\n<i>Configuration saved successfully.</i>",
+                "<b><u>START MESSAGE SETTINGS</u></b>\n\n<i>Configuration saved successfully.</i>",
                 chat_id=pending["panel_chat_id"],
                 message_id=pending["panel_message_id"],
                 reply_markup=start_settings_keyboard(),
             )
         else:
             await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\\n\\n"
+                "<b><u>LINKS POST</u></b>\n\n"
                 "<i>Edit caption, media, and button using the buttons below:</i>",
                 chat_id=pending["panel_chat_id"],
                 message_id=pending["panel_message_id"],
@@ -1282,10 +1282,9 @@ async def active_bot_middleware(handler, event, data):
     username_token = current_bot_username.set(me.get("username", ""))
     user_id_token = current_bot_user_id.set(bot.id)
     try:
-        user = getattr(event, "from_user", None)
-        if user is None:
-            user = getattr(getattr(event, "message", None), "from_user", None)
-        if user is not None:
+        event_message = event if isinstance(event, Message) else getattr(event, "message", None)
+        user = getattr(event_message, "from_user", None)
+        if user is not None and getattr(getattr(event_message, "chat", None), "type", None) == "private":
             try:
                 await track_user_id(user.id)
             except Exception:
