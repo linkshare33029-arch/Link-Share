@@ -19,7 +19,7 @@ from aiogram.types import (
     KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
@@ -69,7 +69,7 @@ DB_NAME = os.environ.get("DB_NAME", "link_share").strip() or "link_share"
 if not MONGO_URI:
     raise RuntimeError("URI must be set in Render environment variables.")
 
-mongo = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=20000, connectTimeoutMS=20000)
+mongo = AsyncMongoClient(MONGO_URI, serverSelectionTimeoutMS=20000, connectTimeoutMS=20000)
 default_db = None
 current_db = contextvars.ContextVar("current_db", default=None)
 bot_databases = {}
@@ -184,7 +184,7 @@ async def send_start_page(message: Message):
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
         if media_id and media_type == "photo":
-            if len(body) <= 1024:
+            if telegram_text_length(body) <= 1024:
                 await message.answer_photo(media_id, caption=body, reply_markup=markup)
             else:
                 await message.answer_photo(media_id, reply_markup=markup)
@@ -236,7 +236,12 @@ async def show_start_settings(message: Message):
     config = await get_start_config()
     await message.answer(start_settings_body(config), reply_markup=start_settings_keyboard())
 
-DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
+def telegram_text_length(value: str) -> int:
+    """Count text as UTF-16 code units, matching Telegram's entity length rules."""
+    return len(value.encode("utf-16-le")) // 2
+
+
+DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ʜᴇʀᴇ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
 class ActiveBotProxy:
     """Resolve Telegram API calls to the bot handling the current update/task."""
@@ -524,7 +529,19 @@ async def send_fresh_link(message: Message, chat_doc):
             kwargs["parse_mode"] = None
         else:
             kwargs["parse_mode"] = ParseMode.HTML
-        if media_id and media_type == "photo":
+        if media_id and media_type in {"photo", "animation"} and telegram_text_length(caption) > 1024:
+            # Recover safely from legacy/externally edited settings that exceed Telegram's media-caption limit.
+            if media_type == "photo":
+                await message.answer_photo(media_id)
+            else:
+                await message.answer_animation(media_id)
+            await message.answer(
+                caption,
+                entities=entities,
+                parse_mode=None if entities else ParseMode.HTML,
+                reply_markup=markup,
+            )
+        elif media_id and media_type == "photo":
             await message.answer_photo(media_id, **kwargs)
         elif media_id and media_type == "animation":
             await message.answer_animation(media_id, **kwargs)
@@ -1047,7 +1064,7 @@ async def owner_input(message: Message):
             return
         start_cfg = await get_start_config()
         limit = 1024 if start_cfg.get("media_file_id") else 4096
-        if len(value) > limit:
+        if telegram_text_length(value) > limit:
             await message.answer(f"Start caption is too long. Current Telegram limit is {limit} characters.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
@@ -1058,7 +1075,7 @@ async def owner_input(message: Message):
             return
         about_cfg = await get_start_config()
         limit = 1024 if about_cfg.get("media_file_id") else 4096
-        if len(value) > limit:
+        if telegram_text_length(value) > limit:
             await message.answer(f"About text is too long. Current Telegram limit is {limit} characters.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_text": value}}, upsert=True)
@@ -1073,7 +1090,7 @@ async def owner_input(message: Message):
         start_cfg = await get_start_config()
         start_text = start_cfg.get("text") or ""
         about_text = start_cfg.get("about_text") or DEFAULT_ABOUT_TEXT
-        if len(start_text) > 1024 or len(about_text) > 1024:
+        if telegram_text_length(start_text) > 1024 or telegram_text_length(about_text) > 1024:
             await message.answer(
                 "Media was not changed. Telegram allows only 1024 characters in a media caption. "
                 "Shorten both the Start caption and About text to 1024 characters or fewer, then try again."
@@ -1105,7 +1122,7 @@ async def owner_input(message: Message):
             return
         cfg_now = await get_config()
         caption_limit = 1024 if cfg_now.get("media_file_id") else 4096
-        if len(text_value) > caption_limit:
+        if telegram_text_length(text_value) > caption_limit:
             await message.answer(
                 f"Caption is too long. Telegram allows up to {caption_limit} characters "
                 "for the current post format."
@@ -1138,6 +1155,14 @@ async def owner_input(message: Message):
             media_type, file_id = "animation", message.animation.file_id
         if not file_id:
             await message.answer("Please send only a picture or GIF.")
+            return
+        current_config = await get_config()
+        current_caption = current_config.get("caption", DEFAULT_CAPTION)
+        if telegram_text_length(current_caption) > 1024:
+            await message.answer(
+                "Media was not changed. The current caption exceeds Telegram's 1024-character media-caption limit. "
+                "Shorten the caption first, then add the photo/GIF again."
+            )
             return
         await settings.update_one(
             {"_id": "post"},
@@ -1491,7 +1516,7 @@ async def main():
         if runner:
             await runner.cleanup()
         await bot.session.close()
-        mongo.close()
+        await mongo.close()
 
 
 if __name__ == "__main__":
