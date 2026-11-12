@@ -137,6 +137,12 @@ async def track_user_id(user_id: int):
         upsert=True,
     )
 
+async def read_start_config():
+    """Read Start settings without creating or changing any database records."""
+    config = await settings.find_one({"_id": START_CONFIG_ID})
+    return config or DEFAULT_START_CONFIG.copy()
+
+
 async def get_start_config():
     config = await settings.find_one({"_id": START_CONFIG_ID})
     if config is None:
@@ -192,7 +198,7 @@ async def send_start_page(message: Message):
         else:
             await message.answer(body, reply_markup=markup)
     except TelegramAPIError:
-        log.exception("Could not send configured %s page; using text fallback", page)
+        log.exception("Could not send configured Start page; using text fallback")
         await message.answer(body, reply_markup=markup)
 
 def small_caps_label(value: str) -> str:
@@ -671,7 +677,8 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
     await call.answer()
-    config = await get_start_config()
+    # Navigation is deliberately read-only: no About/Back state is persisted.
+    config = await read_start_config()
     body = config.get("about_text") or DEFAULT_ABOUT_TEXT
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Back", callback_data="start:back")]
@@ -682,13 +689,14 @@ async def show_start_about(call: CallbackQuery):
         else:
             await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
-        log.exception("Could not show About page")
+        log.exception("Could not edit the existing Start message to show About")
 
 
 @dp.callback_query(F.data == "start:back")
 async def back_from_start_about(call: CallbackQuery):
     await call.answer()
-    config = await get_start_config()
+    # Restore the Start text and its configured URL buttons on the same message.
+    config = await read_start_config()
     body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
     markup = start_config_keyboard(config)
     try:
@@ -697,7 +705,7 @@ async def back_from_start_about(call: CallbackQuery):
         else:
             await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
-        log.exception("Could not restore Start page after About")
+        log.exception("Could not edit the existing message back to the Start page")
 
 
 @dp.callback_query(F.data == "home")
