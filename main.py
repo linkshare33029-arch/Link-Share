@@ -176,31 +176,42 @@ async def send_start_page(message: Message, page: str = "start"):
         log.exception("Could not send configured %s page; using text fallback", page)
         await message.answer(body, reply_markup=markup)
 
+def small_caps_label(value: str) -> str:
+    lower = "abcdefghijklmnopqrstuvwxyz"
+    small = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘǫʀꜱᴛᴜᴠᴡxʏᴢ"
+    table = str.maketrans(lower + lower.upper(), small + small)
+    return value.translate(table)
+
+
 def start_settings_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Start Caption", callback_data="startcfg:caption"),
-         InlineKeyboardButton(text="Help Details", callback_data="startcfg:help")],
-        [InlineKeyboardButton(text="Media", callback_data="startcfg:media"),
-         InlineKeyboardButton(text="Remove Media", callback_data="startcfg:remove_media")],
-        [InlineKeyboardButton(text="Button 1", callback_data="startcfg:button1"),
-         InlineKeyboardButton(text="Button 2", callback_data="startcfg:button2")],
-        [InlineKeyboardButton(text="Button 3", callback_data="startcfg:button3"),
-         InlineKeyboardButton(text="Button 4", callback_data="startcfg:button4")],
-        [InlineKeyboardButton(text="About Details", callback_data="startcfg:about")],
-        [InlineKeyboardButton(text="Reset Start Settings", callback_data="startcfg:reset")],
+        [InlineKeyboardButton(text=small_caps_label("Start Caption"), callback_data="startcfg:caption"),
+         InlineKeyboardButton(text=small_caps_label("Help Details"), callback_data="startcfg:help")],
+        [InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media"),
+         InlineKeyboardButton(text=small_caps_label("Remove Media"), callback_data="startcfg:remove_media")],
+        [InlineKeyboardButton(text=small_caps_label("Button 1"), callback_data="startcfg:button1"),
+         InlineKeyboardButton(text=small_caps_label("Button 2"), callback_data="startcfg:button2")],
+        [InlineKeyboardButton(text=small_caps_label("Button 3"), callback_data="startcfg:button3"),
+         InlineKeyboardButton(text=small_caps_label("Button 4"), callback_data="startcfg:button4")],
+        [InlineKeyboardButton(text=small_caps_label("About Details"), callback_data="startcfg:about")],
+        [InlineKeyboardButton(text=small_caps_label("Reset Start Settings"), callback_data="startcfg:reset")],
     ])
+
+
+def start_settings_body(config):
+    media_status = html.escape(str(config.get("media_type") or "not set"))
+    return (
+        "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
+        "<i>Configure the /start and /help pages below.</i>\n\n"
+        f"<i>Media: {media_status}</i>\n"
+        "<i>Buttons: Up to 4 URL buttons + About</i>\n"
+        "<i>/help: Uses the same media and buttons, with Help Details instead of the Start Caption.</i>"
+    )
+
 
 async def show_start_settings(message: Message):
     config = await get_start_config()
-    media_status = config.get("media_type") or "not set"
-    body = (
-        "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
-        "<i>Configure the /start and /help pages below.</i>\n\n"
-        f"<b>Media:</b> {html.escape(str(media_status))}\n"
-        "<b>Buttons:</b> Up to 4 URL buttons + About\n"
-        "<b>/help:</b> Uses the same media and buttons, with Help Details instead of the Start Caption."
-    )
-    await message.answer(body, reply_markup=start_settings_keyboard())
+    await message.answer(start_settings_body(config), reply_markup=start_settings_keyboard())
 
 DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
@@ -595,19 +606,19 @@ async def start_settings_callback(call: CallbackQuery):
     if action == "cancel":
         await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
         await call.answer("Cancelled")
-        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>", start_settings_keyboard())
+        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
         return
     if action == "remove_media":
         await settings.update_one({"_id": START_CONFIG_ID},
             {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
         await call.answer("Start media removed")
-        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\n\nMedia removed.", start_settings_keyboard())
+        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
         return
     if action == "reset":
         values = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": values}, upsert=True)
         await call.answer("Start settings reset")
-        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\n\nSettings reset to defaults.", start_settings_keyboard())
+        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
         return
     prompt_action = {
         "caption": "start_caption", "help": "start_help", "media": "start_media",
@@ -632,8 +643,8 @@ async def start_settings_callback(call: CallbackQuery):
         "start_button_4": "Send Button 4 as: Button Name | https://example.com\nSend REMOVE to remove it.",
     }
     await call.answer()
-    await edit_panel(call.message, prompts[prompt_action], InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Cancel", callback_data="startcfg:cancel")]
+    await edit_panel(call.message, f"<i>{html.escape(prompts[prompt_action])}</i>", InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
 
 
@@ -644,7 +655,7 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
         return
     await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
     await call.answer("Cancelled")
-    await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>", start_settings_keyboard())
+    await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
 
 
 @dp.callback_query(F.data == "start:about")
@@ -1128,7 +1139,7 @@ async def owner_input(message: Message):
     try:
         if action.startswith("start_"):
             await BOT.edit_message_text(
-                "<b><u>START MESSAGE SETTINGS</u></b>\n\n<i>Configuration saved successfully.</i>",
+                start_settings_body(await get_start_config()),
                 chat_id=pending["panel_chat_id"],
                 message_id=pending["panel_message_id"],
                 reply_markup=start_settings_keyboard(),
