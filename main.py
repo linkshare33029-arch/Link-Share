@@ -591,6 +591,11 @@ async def start_settings_callback(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     action = call.data.split(":", 1)[1]
+    if action == "cancel":
+        await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+        await call.answer("Cancelled")
+        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>", start_settings_keyboard())
+        return
     if action == "remove_media":
         await settings.update_one({"_id": START_CONFIG_ID},
             {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
@@ -1382,6 +1387,13 @@ async def main():
         # Single-bot mode uses the original database so existing chats and deep links stay valid.
         bot_databases[bot.id] = mongo[DB_NAME]
         default_db = bot_databases[bot.id]
+        # Keep the users collection to exactly one document with only the id data field.
+        await users.delete_many({"_id": {"$ne": "all"}})
+        await users.update_one(
+            {"_id": "all"},
+            {"$setOnInsert": {"id": ""}},
+            upsert=True,
+        )
 
         db_token = current_db.set(default_db)
         bot_token = current_bot.set(bot)
