@@ -150,7 +150,11 @@ async def get_start_config():
     return config or DEFAULT_START_CONFIG.copy()
 
 def start_config_keyboard(config):
-    rows, row = [], []
+    # Keep About alone in the first row so Telegram renders it full-width.
+    rows, row = [[InlineKeyboardButton(
+        text=small_caps_label("About"),
+        callback_data="start:about",
+    )]], []
     for index in range(1, 5):
         label = (config.get(f"button{index}_text") or "").strip()
         url = (config.get(f"button{index}_url") or "").strip()
@@ -162,7 +166,6 @@ def start_config_keyboard(config):
                 row = []
     if row:
         rows.append(row)
-    rows.append([InlineKeyboardButton(text="About", callback_data="start:about")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def send_start_page(message: Message):
