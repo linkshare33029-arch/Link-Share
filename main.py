@@ -16,7 +16,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramFor
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     BotCommand, BotCommandScopeChat, ChatAdministratorRights, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
-    KeyboardButton, KeyboardButtonRequestChat, Message, ReplyKeyboardMarkup,
+    KeyboardButton, KeyboardButtonRequestChat, LinkPreviewOptions, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
 from pymongo import AsyncMongoClient
@@ -92,25 +92,45 @@ ui_state = CollectionProxy("owner_ui")
 users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
-DEFAULT_ABOUT_TEXT = (
-    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\n\n"
+LEGACY_DEFAULT_ABOUT_TEXT = (
+    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\\n\\n"
     "<b>Link Share</b> helps you get a fresh invite link for a configured group or channel. "
-    "It is designed to make link access simple and help limit unwanted sharing.\n\n"
-    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\n"
-    "1. Open the Start page and choose one of the available buttons.\n"
+    "It is designed to make link access simple and help limit unwanted sharing.\\n\\n"
+    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\\n"
+    "1. Open the Start page and choose one of the available buttons.\\n"
     "2. If you have received a Link Share invite link, open it in Telegram. "
-    "The bot will create a fresh invite for the selected destination.\n"
+    "The bot will create a fresh invite for the selected destination.\\n"
     "3. Tap the invite button in the message to open the group or channel. "
-    "For private destinations, Telegram may ask you to send a join request.\n\n"
-    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\n"
+    "For private destinations, Telegram may ask you to send a join request.\\n\\n"
+    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\\n"
     "Each generated invite is temporary and expires after 2 minutes. "
     "For public groups, an invite is limited to one member. "
     "If a link has expired or stopped working, open the original Link Share link again "
-    "or ask the person who shared it for a new one.\n\n"
-    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\n"
+    "or ask the person who shared it for a new one.\\n\\n"
+    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\\n"
     "Use the available Start page buttons, or contact the person who provided your Link Share link. "
     "Only destinations configured by the bot owner will appear here.</i>"
 )
+DEFAULT_ABOUT_TEXT = (
+    "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\\n\\n"
+    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\\n"
+    "<b>➤ ɴᴀᴍᴇ :        {bot_mention}</b>\\n"
+    "<b>➤ ᴄʀᴇᴀᴛᴏʀ :  ʏᴜᴛᴀ</b>\\n"
+    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂𝓸𝓴𝓸</b>\\n"
+    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\\n"
+    "<b>➤ ᴠᴇʀsɪᴏɴ :    ✧ ᴠ 0.1 ⚡</b>"
+)
+
+def render_default_about(bot_info):
+    bot_name = html.escape(bot_info.full_name)
+    if bot_info.username:
+        username = html.escape(bot_info.username, quote=True)
+        bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>'
+    else:
+        bot_mention = bot_name
+    anime = '<a href="http://t.me/lexxiowner">Lexi Anime</a>'
+    return DEFAULT_ABOUT_TEXT.format(bot_mention=bot_mention, anime=anime)
+
 DEFAULT_START_CONFIG = {
     "_id": START_CONFIG_ID, "enabled": True, "text": "",
     "about_text": DEFAULT_ABOUT_TEXT, "media_type": None, "media_file_id": None,
@@ -697,6 +717,8 @@ async def show_start_about(call: CallbackQuery):
     # Navigation is deliberately read-only: no About/Back state is persisted.
     config = await read_start_config()
     body = config.get("about_text") or DEFAULT_ABOUT_TEXT
+    if body == LEGACY_DEFAULT_ABOUT_TEXT or body == DEFAULT_ABOUT_TEXT:
+        body = render_default_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Back", callback_data="start:back")]
     ])
@@ -704,7 +726,11 @@ async def show_start_about(call: CallbackQuery):
         if call.message.photo or call.message.animation or call.message.document:
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
-            await call.message.edit_text(body, reply_markup=markup)
+            await call.message.edit_text(
+                body,
+                reply_markup=markup,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
     except TelegramAPIError:
         log.exception("Could not edit the existing Start message to show About")
 
