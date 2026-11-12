@@ -1384,14 +1384,16 @@ async def main():
         # Public users see only /start. Each configured owner gets the full menu
         # in their private chat; authorization is still enforced by every handler.
         await bot.set_my_commands([
-            BotCommand(command="start", description="Start The Adventure"),
+            BotCommand(command="start", description="Start the Adventure ✨"),
         ])
+        # Owner menu is ordered by everyday priority: entry point, main panel,
+        # then the two configuration areas; /owner remains as a panel alias.
         owner_commands = [
-            BotCommand(command="start", description="Start The Adventure"),
-            BotCommand(command="admin", description="Open the full owner control panel"),
-            BotCommand(command="owner", description="Alias for the owner control panel"),
-            BotCommand(command="set", description="Open Link Post settings"),
-            BotCommand(command="setstart", description="Configure Start and About pages"),
+            BotCommand(command="start", description="Start the Adventure ✨"),
+            BotCommand(command="admin", description="Open Owner Control Panel"),
+            BotCommand(command="set", description="Configure Links Post"),
+            BotCommand(command="setstart", description="Configure Start Post & About"),
+            BotCommand(command="owner", description="Open Owner Control Panel (Alias)"),
         ]
         for owner_id in OWNER_IDS:
             await bot.set_my_commands(
