@@ -93,22 +93,22 @@ users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
 DEFAULT_ABOUT_TEXT = (
-    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\n\n"
-    "<b>Link Share</b> helps you get a fresh invite link for a configured group or channel. "
+    "<i>✦ <b>ᴀʙᴏᴜᴛ {bot_name}</b> ✦\n\n"
+    "<b>{bot_name}</b> helps you get a fresh invite link for a configured group or channel. "
     "It is designed to make link access simple and help limit unwanted sharing.\n\n"
     "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\n"
     "1. Open the Start page and choose one of the available buttons.\n"
-    "2. If you have received a Link Share invite link, open it in Telegram. "
+    "2. If you have received a {bot_name} invite link, open it in Telegram. "
     "The bot will create a fresh invite for the selected destination.\n"
     "3. Tap the invite button in the message to open the group or channel. "
     "For private destinations, Telegram may ask you to send a join request.\n\n"
     "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\n"
     "Each generated invite is temporary and expires after 2 minutes. "
     "For public groups, an invite is limited to one member. "
-    "If a link has expired or stopped working, open the original Link Share link again "
+    "If a link has expired or stopped working, open the original {bot_name} link again "
     "or ask the person who shared it for a new one.\n\n"
     "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\n"
-    "Use the available Start page buttons, or contact the person who provided your Link Share link. "
+    "Use the available Start page buttons, or contact the person who provided your {bot_name} link. "
     "Only destinations configured by the bot owner will appear here.</i>\n\n"
     "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\n\n"
     "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\n"
@@ -126,7 +126,7 @@ def render_default_about(bot_info):
     else:
         bot_mention = bot_name
     anime = '<a href="http://t.me/lexianime">Lexi Anime</a>'
-    return DEFAULT_ABOUT_TEXT.format(bot_mention=bot_mention, anime=anime)
+    return DEFAULT_ABOUT_TEXT.format(bot_name=bot_name, bot_mention=bot_mention, anime=anime)
 
 DEFAULT_START_CONFIG = {
     "_id": START_CONFIG_ID, "enabled": True, "text": "",
