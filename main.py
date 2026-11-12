@@ -674,7 +674,7 @@ async def show_start_about(call: CallbackQuery):
     config = await get_start_config()
     body = config.get("about_text") or DEFAULT_ABOUT_TEXT
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="《 BACK", callback_data="start:back")]
+        [InlineKeyboardButton(text="Back", callback_data="start:back")]
     ])
     try:
         if call.message.photo or call.message.animation or call.message.document:
