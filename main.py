@@ -711,12 +711,22 @@ async def show_start_about(call: CallbackQuery):
     await call.answer()
     # About is entirely code-defined; do not read or write About content in MongoDB.
     body = render_default_about(await BOT.get_me())
+    has_media = bool(call.message.photo or call.message.animation or call.message.document)
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Back", callback_data="start:back")]
+        [InlineKeyboardButton(
+            text="Back",
+            callback_data="start:back_media" if has_media else "start:back",
+        )]
     ])
     try:
-        if call.message.photo or call.message.animation or call.message.document:
-            await call.message.edit_caption(caption=body, reply_markup=markup)
+        if has_media:
+            # About is longer than Telegram's 1024-character media-caption limit.
+            # Keep the original Start media message intact and show About separately.
+            await call.message.answer(
+                body,
+                reply_markup=markup,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
         else:
             await call.message.edit_text(
                 body,
@@ -724,7 +734,16 @@ async def show_start_about(call: CallbackQuery):
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
             )
     except TelegramAPIError:
-        log.exception("Could not edit the existing Start message to show About")
+        log.exception("Could not show the code-defined About page")
+
+
+@dp.callback_query(F.data == "start:back_media")
+async def close_media_about(call: CallbackQuery):
+    await call.answer()
+    try:
+        await call.message.delete()
+    except TelegramAPIError:
+        log.exception("Could not delete the separate About message")
 
 
 @dp.callback_query(F.data == "start:back")
@@ -1096,11 +1115,10 @@ async def owner_input(message: Message):
             return
         start_cfg = await get_start_config()
         start_text = start_cfg.get("text") or ""
-        about_text = render_default_about(await BOT.get_me())
-        if telegram_text_length(start_text) > 1024 or telegram_text_length(about_text) > 1024:
+        if telegram_text_length(start_text) > 1024:
             await message.answer(
                 "Media was not changed. Telegram allows only 1024 characters in a media caption. "
-                "Shorten both the Start caption and About text to 1024 characters or fewer, then try again."
+                "Shorten the Start caption to 1024 characters or fewer, then try again."
             )
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
