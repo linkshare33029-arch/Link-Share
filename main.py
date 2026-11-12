@@ -241,7 +241,7 @@ def telegram_text_length(value: str) -> int:
     return len(value.encode("utf-16-le")) // 2
 
 
-DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ʜᴇʀᴇ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
+DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
 class ActiveBotProxy:
     """Resolve Telegram API calls to the bot handling the current update/task."""
