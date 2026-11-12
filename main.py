@@ -6,6 +6,7 @@ import os
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
@@ -88,6 +89,117 @@ chats = CollectionProxy("chats")
 settings = CollectionProxy("settings")
 issued = CollectionProxy("issued_links")
 ui_state = CollectionProxy("owner_ui")
+users = CollectionProxy("users")
+
+START_CONFIG_ID = "start_message"
+DEFAULT_START_CONFIG = {
+    "_id": START_CONFIG_ID, "enabled": True, "text": "", "help_text": "",
+    "about_text": "", "media_type": None, "media_file_id": None,
+    "button1_text": "", "button1_url": "", "button2_text": "", "button2_url": "",
+    "button3_text": "", "button3_url": "", "button4_text": "", "button4_url": "",
+}
+
+async def track_user_id(user_id: int):
+    """Keep every interacting Telegram user ID in one comma-separated string field."""
+    value = str(int(user_id))
+    await users.update_one(
+        {"_id": "all"},
+        [{"$set": {"id": {"$let": {
+            "vars": {"current": {"$ifNull": ["$id", ""]}, "new_id": value},
+            "in": {"$cond": [
+                {"$in": ["$new_id", {"$split": [{"$ifNull": ["$id", ""]}, ", "]}]},
+                "$current",
+                {"$cond": [
+                    {"$eq": ["$current", ""]}, "$new_id",
+                    {"$concat": ["$current", ", ", "$new_id"]}
+                ]}
+            ]}
+        }}}}],
+        upsert=True,
+    )
+
+async def get_start_config():
+    config = await settings.find_one({"_id": START_CONFIG_ID})
+    if config is None:
+        await settings.update_one(
+            {"_id": START_CONFIG_ID},
+            {"$setOnInsert": DEFAULT_START_CONFIG.copy()},
+            upsert=True,
+        )
+        config = await settings.find_one({"_id": START_CONFIG_ID})
+    return config or DEFAULT_START_CONFIG.copy()
+
+def start_config_keyboard(config):
+    rows, row = [], []
+    for index in range(1, 5):
+        label = (config.get(f"button{index}_text") or "").strip()
+        url = (config.get(f"button{index}_url") or "").strip()
+        parsed = urlparse(url)
+        if label and parsed.scheme in {"http", "https"} and parsed.netloc:
+            row.append(InlineKeyboardButton(text=label[:64], url=url))
+            if len(row) == 2:
+                rows.append(row)
+                row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="About", callback_data="start:about")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+async def send_start_page(message: Message, page: str = "start"):
+    config = await get_start_config()
+    if not config.get("enabled", True):
+        await message.answer("This page is currently unavailable.")
+        return
+    if page == "help":
+        body = config.get("help_text") or "Help information has not been configured yet. Please contact the bot owner."
+    else:
+        body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
+    markup = start_config_keyboard(config)
+    media_id, media_type = config.get("media_file_id"), config.get("media_type")
+    try:
+        if media_id and media_type == "photo":
+            if len(body) <= 1024:
+                await message.answer_photo(media_id, caption=body, reply_markup=markup)
+            else:
+                await message.answer_photo(media_id, reply_markup=markup)
+                await message.answer(body)
+        elif media_id and media_type == "animation":
+            if len(body) <= 1024:
+                await message.answer_animation(media_id, caption=body, reply_markup=markup)
+            else:
+                await message.answer_animation(media_id, reply_markup=markup)
+                await message.answer(body)
+        else:
+            await message.answer(body, reply_markup=markup)
+    except TelegramAPIError:
+        log.exception("Could not send configured %s page; using text fallback", page)
+        await message.answer(body, reply_markup=markup)
+
+def start_settings_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Start Caption", callback_data="startcfg:caption"),
+         InlineKeyboardButton(text="Help Details", callback_data="startcfg:help")],
+        [InlineKeyboardButton(text="Media", callback_data="startcfg:media"),
+         InlineKeyboardButton(text="Remove Media", callback_data="startcfg:remove_media")],
+        [InlineKeyboardButton(text="Button 1", callback_data="startcfg:button1"),
+         InlineKeyboardButton(text="Button 2", callback_data="startcfg:button2")],
+        [InlineKeyboardButton(text="Button 3", callback_data="startcfg:button3"),
+         InlineKeyboardButton(text="Button 4", callback_data="startcfg:button4")],
+        [InlineKeyboardButton(text="About Details", callback_data="startcfg:about")],
+        [InlineKeyboardButton(text="Reset Start Settings", callback_data="startcfg:reset")],
+    ])
+
+async def show_start_settings(message: Message):
+    config = await get_start_config()
+    media_status = config.get("media_type") or "not set"
+    body = (
+        "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
+        "<i>Configure the /start and /help pages below.</i>\n\n"
+        f"<b>Media:</b> {html.escape(str(media_status))}\n"
+        "<b>Buttons:</b> Up to 4 URL buttons + About\n"
+        "<b>/help:</b> Uses the same media and buttons, with Help Details instead of the Start Caption."
+    )
+    await message.answer(body, reply_markup=start_settings_keyboard())
 
 DEFAULT_CAPTION = "<b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b>\n<b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
 DEFAULT_BUTTON = "• ᴄʟɪᴄᴋ ʜᴇʀᴇ •"
@@ -415,11 +527,20 @@ async def start(message: Message):
         return
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
-    doc = await chats.find_one({"code": code, "active": True}) if code else None
-    if not doc:
-        await message.answer("This link is invalid or no longer available.")
+    if code:
+        doc = await chats.find_one({"code": code, "active": True})
+        if not doc:
+            await message.answer("This link is invalid or no longer available.")
+            return
+        await send_fresh_link(message, doc)
         return
-    await send_fresh_link(message, doc)
+    await send_start_page(message, "start")
+
+
+@dp.message(Command("help"))
+async def help_command(message: Message):
+    if message.from_user:
+        await send_start_page(message, "help")
 
 
 @dp.message(Command("admin"))
@@ -451,6 +572,107 @@ async def set_command(message: Message):
         await message.delete()
     except TelegramAPIError:
         pass
+
+
+@dp.message(Command("setstart"))
+async def setstart_command(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    await show_start_settings(message)
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+
+
+@dp.callback_query(F.data.startswith("startcfg:"))
+async def start_settings_callback(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    action = call.data.split(":", 1)[1]
+    if action == "remove_media":
+        await settings.update_one({"_id": START_CONFIG_ID},
+            {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
+        await call.answer("Start media removed")
+        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\\n\\nMedia removed.", start_settings_keyboard())
+        return
+    if action == "reset":
+        values = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": values}, upsert=True)
+        await call.answer("Start settings reset")
+        await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>\\n\\nSettings reset to defaults.", start_settings_keyboard())
+        return
+    prompt_action = {
+        "caption": "start_caption", "help": "start_help", "media": "start_media",
+        "about": "start_about", "button1": "start_button_1", "button2": "start_button_2",
+        "button3": "start_button_3", "button4": "start_button_4",
+    }.get(action)
+    if not prompt_action:
+        await call.answer("Unknown setting", show_alert=True)
+        return
+    await ui_state.update_one({"_id": f"prompt:{call.from_user.id}"}, {"$set": {
+        "action": prompt_action, "panel_chat_id": call.message.chat.id,
+        "panel_message_id": call.message.message_id, "updated_at": datetime.now(timezone.utc),
+    }}, upsert=True)
+    prompts = {
+        "start_caption": "Send the new /start caption as text (HTML is supported).",
+        "start_help": "Send detailed /help text as text (HTML is supported).",
+        "start_media": "Send one photo or GIF to use on both /start and /help.",
+        "start_about": "Send the About page details as text (HTML is supported).",
+        "start_button_1": "Send Button 1 as: Button Name | https://example.com\\nSend /skip to remove it.",
+        "start_button_2": "Send Button 2 as: Button Name | https://example.com\\nSend /skip to remove it.",
+        "start_button_3": "Send Button 3 as: Button Name | https://example.com\\nSend /skip to remove it.",
+        "start_button_4": "Send Button 4 as: Button Name | https://example.com\\nSend /skip to remove it.",
+    }
+    await call.answer()
+    await edit_panel(call.message, prompts[prompt_action], InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Cancel", callback_data="startcfg:cancel")]
+    ]))
+
+
+@dp.callback_query(F.data == "startcfg:cancel")
+async def cancel_start_settings_prompt(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+    await call.answer("Cancelled")
+    await edit_panel(call.message, "<b>START MESSAGE SETTINGS</b>", start_settings_keyboard())
+
+
+@dp.callback_query(F.data == "start:about")
+async def show_start_about(call: CallbackQuery):
+    await call.answer()
+    config = await get_start_config()
+    body = config.get("about_text") or "About information has not been configured yet."
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="《 BACK", callback_data="start:back")]
+    ])
+    try:
+        if call.message.photo or call.message.animation or call.message.document:
+            await call.message.edit_caption(caption=body, reply_markup=markup)
+        else:
+            await call.message.edit_text(body, reply_markup=markup)
+    except TelegramAPIError:
+        log.exception("Could not show About page")
+
+
+@dp.callback_query(F.data == "start:back")
+async def back_from_start_about(call: CallbackQuery):
+    await call.answer()
+    config = await get_start_config()
+    body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
+    markup = start_config_keyboard(config)
+    try:
+        if call.message.photo or call.message.animation or call.message.document:
+            await call.message.edit_caption(caption=body, reply_markup=markup)
+        else:
+            await call.message.edit_text(body, reply_markup=markup)
+    except TelegramAPIError:
+        log.exception("Could not restore Start page after About")
+
+
 @dp.callback_query(F.data == "home")
 async def go_home(call: CallbackQuery):
     if not is_owner(call.from_user.id):
@@ -783,7 +1005,52 @@ async def owner_input(message: Message):
     if not pending:
         return
     action = pending["action"]
-    if action == "caption":
+    if action == "start_caption":
+        value = message.text or message.caption
+        if value is None:
+            await message.answer("Please send text for the Start caption.")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
+    elif action == "start_help":
+        value = message.text or message.caption
+        if value is None:
+            await message.answer("Please send text for the Help details.")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"help_text": value}}, upsert=True)
+    elif action == "start_about":
+        value = message.text or message.caption
+        if value is None:
+            await message.answer("Please send text for the About page.")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_text": value}}, upsert=True)
+    elif action == "start_media":
+        if message.photo:
+            media_type, file_id = "photo", message.photo[-1].file_id
+        elif message.animation:
+            media_type, file_id = "animation", message.animation.file_id
+        else:
+            await message.answer("Please send a photo or GIF.")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
+            "media_type": media_type, "media_file_id": file_id,
+        }}, upsert=True)
+    elif action.startswith("start_button_"):
+        index = action.rsplit("_", 1)[1]
+        if message.text and message.text.strip().lower() == "/skip":
+            label, url = "", ""
+        elif message.text and "|" in message.text:
+            label, url = [part.strip() for part in message.text.split("|", 1)]
+            parsed = urlparse(url)
+            if not label or len(label) > 64 or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                await message.answer("Invalid format. Send: Button Name | https://example.com")
+                return
+        else:
+            await message.answer("Send: Button Name | https://example.com (or /skip to remove).")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
+            f"button{index}_text": label, f"button{index}_url": url,
+        }}, upsert=True)
+    elif action == "caption":
         text_value = message.text or message.caption
         if not text_value:
             await message.answer("Please send text for the caption.")
@@ -840,13 +1107,21 @@ async def owner_input(message: Message):
     except TelegramAPIError:
         pass
     try:
-        await BOT.edit_message_text(
-            "<b><u>LINKS POST</u></b>\n\n"
-            "<i>Edit caption, media, and button using the buttons below:</i>",
-            chat_id=pending["panel_chat_id"],
-            message_id=pending["panel_message_id"],
-            reply_markup=settings_keyboard(),
-        )
+        if action.startswith("start_"):
+            await BOT.edit_message_text(
+                "<b><u>START MESSAGE SETTINGS</u></b>\\n\\n<i>Configuration saved successfully.</i>",
+                chat_id=pending["panel_chat_id"],
+                message_id=pending["panel_message_id"],
+                reply_markup=start_settings_keyboard(),
+            )
+        else:
+            await BOT.edit_message_text(
+                "<b><u>LINKS POST</u></b>\\n\\n"
+                "<i>Edit caption, media, and button using the buttons below:</i>",
+                chat_id=pending["panel_chat_id"],
+                message_id=pending["panel_message_id"],
+                reply_markup=settings_keyboard(),
+            )
     except TelegramAPIError:
         log.exception("Could not restore settings panel")
 
@@ -1002,6 +1277,14 @@ async def active_bot_middleware(handler, event, data):
     username_token = current_bot_username.set(me.get("username", ""))
     user_id_token = current_bot_user_id.set(bot.id)
     try:
+        user = getattr(event, "from_user", None)
+        if user is None:
+            user = getattr(getattr(event, "message", None), "from_user", None)
+        if user is not None:
+            try:
+                await track_user_id(user.id)
+            except Exception:
+                log.exception("Could not add Telegram user %s to users collection", user.id)
         return await handler(event, data)
     finally:
         current_db.reset(db_token)
@@ -1072,12 +1355,15 @@ async def main():
         # in their private chat; authorization is still enforced by every handler.
         await bot.set_my_commands([
             BotCommand(command="start", description="✨ Start The Adventure"),
+            BotCommand(command="help", description="Get bot help and details"),
         ])
         owner_commands = [
             BotCommand(command="start", description="✨ Start The Adventure"),
+            BotCommand(command="help", description="Get bot help and details"),
             BotCommand(command="admin", description="Open the full owner control panel"),
             BotCommand(command="owner", description="Alias for the owner control panel"),
             BotCommand(command="set", description="Open Link Post settings"),
+            BotCommand(command="setstart", description="Configure Start and Help pages"),
         ]
         for owner_id in OWNER_IDS:
             await bot.set_my_commands(
