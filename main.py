@@ -597,6 +597,64 @@ async def start(message: Message):
     await send_start_page(message)
 
 
+@dp.message(Command("broadcast"))
+async def broadcast_command(message: Message):
+    """Copy a replied-to message, or the command message itself, to every saved user."""
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+
+    source_message = message.reply_to_message or message
+    users_doc = await users.find_one({"_id": "all"}, {"id": 1})
+    saved_ids = (users_doc or {}).get("id", "")
+    recipient_ids = []
+    seen_ids = set()
+    for raw_id in saved_ids.split(","):
+        raw_id = raw_id.strip()
+        if not raw_id:
+            continue
+        try:
+            user_id = int(raw_id)
+        except ValueError:
+            log.warning("Ignoring invalid user ID in users collection: %r", raw_id)
+            continue
+        if user_id > 0 and user_id not in seen_ids:
+            seen_ids.add(user_id)
+            recipient_ids.append(user_id)
+
+    if not recipient_ids:
+        await message.answer("No users are saved in the users collection yet.")
+        return
+
+    delivered = 0
+    failed = 0
+    inline_markup = (
+        source_message.reply_markup
+        if isinstance(source_message.reply_markup, InlineKeyboardMarkup)
+        else None
+    )
+    for user_id in recipient_ids:
+        try:
+            await source_message.copy_to(
+                chat_id=user_id,
+                reply_markup=inline_markup,
+            )
+            delivered += 1
+        except TelegramAPIError as exc:
+            failed += 1
+            log.info("Broadcast delivery failed for user %s: %s", user_id, exc)
+        except Exception:
+            failed += 1
+            log.exception("Unexpected broadcast delivery failure for user %s", user_id)
+        await asyncio.sleep(0.04)
+
+    await message.answer(
+        "<b>Broadcast completed.</b>\n\n"
+        f"<b>Users:</b> {len(recipient_ids)}\n"
+        f"<b>Delivered:</b> {delivered}\n"
+        f"<b>Failed:</b> {failed}"
+    )
+
+
 @dp.message(Command("admin"))
 @dp.message(Command("owner"))
 async def owner_command(message: Message):
@@ -1437,6 +1495,7 @@ async def main():
             BotCommand(command="admin", description="Open Owner Control Panel"),
             BotCommand(command="set", description="Configure Links Post"),
             BotCommand(command="setstart", description="Configure Start Post & About"),
+            BotCommand(command="broadcast", description="Broadcast a message to all users"),
             BotCommand(command="owner", description="Open Owner Control Panel (Alias)"),
         ]
         for owner_id in OWNER_IDS:
