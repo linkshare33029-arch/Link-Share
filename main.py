@@ -92,9 +92,28 @@ ui_state = CollectionProxy("owner_ui")
 users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
+DEFAULT_ABOUT_TEXT = (
+    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\n\n"
+    "<b>Link Share</b> helps you get a fresh invite link for a configured group or channel. "
+    "It is designed to make link access simple and help limit unwanted sharing.\n\n"
+    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\n"
+    "1. Open the Start page and choose one of the available buttons.\n"
+    "2. If you have received a Link Share invite link, open it in Telegram. "
+    "The bot will create a fresh invite for the selected destination.\n"
+    "3. Tap the invite button in the message to open the group or channel. "
+    "For private destinations, Telegram may ask you to send a join request.\n\n"
+    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\n"
+    "Each generated invite is temporary and expires after 2 minutes. "
+    "For public groups, an invite is limited to one member. "
+    "If a link has expired or stopped working, open the original Link Share link again "
+    "or ask the person who shared it for a new one.\n\n"
+    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\n"
+    "Use the available Start page buttons, or contact the person who provided your Link Share link. "
+    "Only destinations configured by the bot owner will appear here.</i>"
+)
 DEFAULT_START_CONFIG = {
-    "_id": START_CONFIG_ID, "enabled": True, "text": "", "help_text": "",
-    "about_text": "", "media_type": None, "media_file_id": None,
+    "_id": START_CONFIG_ID, "enabled": True, "text": "",
+    "about_text": DEFAULT_ABOUT_TEXT, "media_type": None, "media_file_id": None,
     "button1_text": "", "button1_url": "", "button2_text": "", "button2_url": "",
     "button3_text": "", "button3_url": "", "button4_text": "", "button4_url": "",
 }
@@ -146,15 +165,12 @@ def start_config_keyboard(config):
     rows.append([InlineKeyboardButton(text="About", callback_data="start:about")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-async def send_start_page(message: Message, page: str = "start"):
+async def send_start_page(message: Message):
     config = await get_start_config()
     if not config.get("enabled", True):
         await message.answer("This page is currently unavailable.")
         return
-    if page == "help":
-        body = config.get("help_text") or "Help information has not been configured yet. Please contact the bot owner."
-    else:
-        body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
+    body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
     markup = start_config_keyboard(config)
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
@@ -185,8 +201,7 @@ def small_caps_label(value: str) -> str:
 
 def start_settings_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=small_caps_label("Start Caption"), callback_data="startcfg:caption"),
-         InlineKeyboardButton(text=small_caps_label("Help Details"), callback_data="startcfg:help")],
+        [InlineKeyboardButton(text=small_caps_label("Start Caption"), callback_data="startcfg:caption")],
         [InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media"),
          InlineKeyboardButton(text=small_caps_label("Remove Media"), callback_data="startcfg:remove_media")],
         [InlineKeyboardButton(text=small_caps_label("Button 1"), callback_data="startcfg:button1"),
@@ -202,10 +217,9 @@ def start_settings_body(config):
     media_status = html.escape(str(config.get("media_type") or "not set"))
     return (
         "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
-        "<i>Configure the /start and /help pages below.</i>\n\n"
+        "<i>Configure the /start page and About details below.</i>\n\n"
         f"<i>Media: {media_status}</i>\n"
-        "<i>Buttons: Up to 4 URL buttons + About</i>\n"
-        "<i>/help: Uses the same media and buttons, with Help Details instead of the Start Caption.</i>"
+        "<i>Buttons: Up to 4 URL buttons + About</i>"
     )
 
 
@@ -546,13 +560,7 @@ async def start(message: Message):
             return
         await send_fresh_link(message, doc)
         return
-    await send_start_page(message, "start")
-
-
-@dp.message(Command("help"))
-async def help_command(message: Message):
-    if message.from_user:
-        await send_start_page(message, "help")
+    await send_start_page(message)
 
 
 @dp.message(Command("admin"))
@@ -621,7 +629,7 @@ async def start_settings_callback(call: CallbackQuery):
         await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
         return
     prompt_action = {
-        "caption": "start_caption", "help": "start_help", "media": "start_media",
+        "caption": "start_caption", "media": "start_media",
         "about": "start_about", "button1": "start_button_1", "button2": "start_button_2",
         "button3": "start_button_3", "button4": "start_button_4",
     }.get(action)
@@ -634,8 +642,7 @@ async def start_settings_callback(call: CallbackQuery):
     }}, upsert=True)
     prompts = {
         "start_caption": "Send the new /start caption as text (HTML is supported).",
-        "start_help": "Send detailed /help text as text (HTML is supported).",
-        "start_media": "Send one photo or GIF to use on both /start and /help.",
+        "start_media": "Send one photo or GIF to use on the /start page.",
         "start_about": "Send the About page details as text (HTML is supported).",
         "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend REMOVE to remove it.",
         "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend REMOVE to remove it.",
@@ -662,7 +669,7 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
 async def show_start_about(call: CallbackQuery):
     await call.answer()
     config = await get_start_config()
-    body = config.get("about_text") or "About information has not been configured yet."
+    body = config.get("about_text") or DEFAULT_ABOUT_TEXT
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="《 BACK", callback_data="start:back")]
     ])
@@ -1033,15 +1040,6 @@ async def owner_input(message: Message):
             await message.answer(f"Start caption is too long. Current Telegram limit is {limit} characters.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
-    elif action == "start_help":
-        value = message.text or message.caption
-        if value is None:
-            await message.answer("Please send text for the Help details.")
-            return
-        if len(value) > 4096:
-            await message.answer("Help details are too long. Telegram allows up to 4096 characters.")
-            return
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"help_text": value}}, upsert=True)
     elif action == "start_about":
         value = message.text or message.caption
         if value is None:
@@ -1383,16 +1381,14 @@ async def main():
         # Public users see only /start. Each configured owner gets the full menu
         # in their private chat; authorization is still enforced by every handler.
         await bot.set_my_commands([
-            BotCommand(command="start", description="✨ Start The Adventure"),
-            BotCommand(command="help", description="Get bot help and details"),
+            BotCommand(command="start", description="Start The Adventure"),
         ])
         owner_commands = [
-            BotCommand(command="start", description="✨ Start The Adventure"),
-            BotCommand(command="help", description="Get bot help and details"),
+            BotCommand(command="start", description="Start The Adventure"),
             BotCommand(command="admin", description="Open the full owner control panel"),
             BotCommand(command="owner", description="Alias for the owner control panel"),
             BotCommand(command="set", description="Open Link Post settings"),
-            BotCommand(command="setstart", description="Configure Start and Help pages"),
+            BotCommand(command="setstart", description="Configure Start and About pages"),
         ]
         for owner_id in OWNER_IDS:
             await bot.set_my_commands(
