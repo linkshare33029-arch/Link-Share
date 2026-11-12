@@ -93,31 +93,13 @@ users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
 LEGACY_DEFAULT_ABOUT_TEXT = (
-    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\n\n"
-    "<b>Link Share</b> helps you get a fresh invite link for a configured group or channel. "
-    "It is designed to make link access simple and help limit unwanted sharing.\n\n"
-    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\n"
-    "1. Open the Start page and choose one of the available buttons.\n"
-    "2. If you have received a Link Share invite link, open it in Telegram. "
-    "The bot will create a fresh invite for the selected destination.\n"
-    "3. Tap the invite button in the message to open the group or channel. "
-    "For private destinations, Telegram may ask you to send a join request.\n\n"
-    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\n"
-    "Each generated invite is temporary and expires after 2 minutes. "
-    "For public groups, an invite is limited to one member. "
-    "If a link has expired or stopped working, open the original Link Share link again "
-    "or ask the person who shared it for a new one.\n\n"
-    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\n"
-    "Use the available Start page buttons, or contact the person who provided your Link Share link. "
-    "Only destinations configured by the bot owner will appear here.</i>"
-)
-DEFAULT_ABOUT_TEXT = (
-    "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\n\n"
-    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\n"
-    "<b>➤ ɴᴀᴍᴇ :        {bot_mention}</b>\n"
-    "<b>➤ ᴄʀᴇᴀᴛᴏʀ :  ʏᴜᴛᴀ</b>\n"
-    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂𝓸𝓴𝓸</b>\n"
-    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\n"
+    LEGACY_DEFAULT_ABOUT_TEXT + "\\n\\n"
+    "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\\n\\n"
+    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\\n"
+    "<b>➤ ɴᴀᴍᴇ :        {bot_mention}</b>\\n"
+    "<b>➤ ᴄʀᴇᴀᴛᴏʀ :  ʏᴜᴛᴀ</b>\\n"
+    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂𝓸𝓴𝓸</b>\\n"
+    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\\n"
     "<b>➤ ᴠᴇʀsɪᴏɴ :    ✧ ᴠ 0.1 ⚡</b>"
 )
 
