@@ -49,5 +49,7 @@ The bot uses database `link_share` and collections `chats`, `settings`, `issued_
 - The Render service currently uses its default TCP health probe because no HTTP health-check path is configured. The app also exposes `/` and `/health`; requests to either endpoint perform a MongoDB ping and return the database health result.
 - Expired invites are revoked by their scheduled tasks; failed revocations are retried three more times at 30-second intervals and then reported to owners.
 - The bot needs to remain running to receive updates and revoke expired invites promptly.
-- Render Free Web Services can spin down after inactivity. For continuous 24/7 polling, use a paid always-on Render service.
+- This Render service is currently on the Free plan. Render spins a Free web service down after 15 minutes without inbound traffic; the next request wakes it and startup can take about one minute.
+- While Render has spun the service down, in-memory expiry tasks cannot run. Telegram's own `expire_date` still makes generated invite links expire after two minutes; on the next startup, the bot restores pending expiry tasks from MongoDB and retries any overdue revocations.
+- For uninterrupted webhook handling and background expiry/retry processing, use a paid always-on Render service.
 - Telegram can delay or omit some membership metadata; the bot uses the invite URL when available and a per-user/per-chat fallback when Telegram omits it. No bot can guarantee revocation at the exact millisecond if Telegram does not deliver the membership update immediately.
