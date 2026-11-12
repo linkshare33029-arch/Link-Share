@@ -121,9 +121,10 @@ async def track_user_id(user_id: int):
 async def get_start_config():
     config = await settings.find_one({"_id": START_CONFIG_ID})
     if config is None:
+        defaults = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
         await settings.update_one(
             {"_id": START_CONFIG_ID},
-            {"$setOnInsert": DEFAULT_START_CONFIG.copy()},
+            {"$setOnInsert": defaults},
             upsert=True,
         )
         config = await settings.find_one({"_id": START_CONFIG_ID})
