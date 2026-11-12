@@ -98,7 +98,7 @@ DEFAULT_ABOUT_TEXT = (
     "Choose an available option on Start or open a {bot_name} invite link to get a fresh invite.\n\n"
     "<b>✦ Hᴏᴡ ɪᴛ ᴡᴏʀᴋs</b>\n"
     "Open the invite link in Telegram, then tap the button to join the selected group or channel. "
-    "Private chats may require a join request.\n\n"
+    "For private chats, users must receive approval before joining.\n\n"
     "<b>✦ ɪɴᴠɪᴛᴇ ɴᴏᴛᴇs</b>\n"
     "Invites expire in 2 minutes. Public-group links allow one member. "
     "If a link expires, open the original link again to get a new one.\n\n"
