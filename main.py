@@ -128,7 +128,7 @@ def render_default_about(bot_info):
         bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>'
     else:
         bot_mention = bot_name
-    anime = '<a href="http://t.me/lexxiowner">Lexi Anime</a>'
+    anime = '<a href="http://t.me/lexianime">Lexi Anime</a>'
     return DEFAULT_ABOUT_TEXT.format(bot_mention=bot_mention, anime=anime)
 
 DEFAULT_START_CONFIG = {
