@@ -95,7 +95,7 @@ START_CONFIG_ID = "start_message"
 DEFAULT_ABOUT_TEXT = (
     "<i>✦ <b>ᴀʙᴏᴜᴛ {bot_name}</b> ✦\n\n"
     "<b>{bot_name}</b> makes sharing access to configured groups and channels simple. "
-    "Choose an available option on Start or open a Link Share invite link to get a fresh invite.\n\n"
+    "Choose an available option on Start or open a {bot_name} invite link to get a fresh invite.\n\n"
     "<b>✦ Hᴏᴡ ɪᴛ ᴡᴏʀᴋs</b>\n"
     "Open the invite link in Telegram, then tap the button to join the selected group or channel. "
     "Private chats may require a join request.\n\n"
