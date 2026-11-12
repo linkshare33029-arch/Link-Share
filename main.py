@@ -709,9 +709,7 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
     await call.answer()
-    # Navigation is deliberately read-only: no About/Back state is persisted.
-    config = await read_start_config()
-    # About content is code-defined; ignore any legacy database about_text.
+    # About is entirely code-defined; do not read or write About content in MongoDB.
     body = render_default_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Back", callback_data="start:back")]
