@@ -1070,6 +1070,15 @@ async def owner_input(message: Message):
         else:
             await message.answer("Please send a photo or GIF.")
             return
+        start_cfg = await get_start_config()
+        start_text = start_cfg.get("text") or ""
+        about_text = start_cfg.get("about_text") or DEFAULT_ABOUT_TEXT
+        if len(start_text) > 1024 or len(about_text) > 1024:
+            await message.answer(
+                "Media was not changed. Telegram allows only 1024 characters in a media caption. "
+                "Shorten both the Start caption and About text to 1024 characters or fewer, then try again."
+            )
+            return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
             "media_type": media_type, "media_file_id": file_id,
         }}, upsert=True)
