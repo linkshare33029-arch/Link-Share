@@ -94,29 +94,21 @@ users = CollectionProxy("users")
 START_CONFIG_ID = "start_message"
 DEFAULT_ABOUT_TEXT = (
     "<i>✦ <b>ᴀʙᴏᴜᴛ {bot_name}</b> ✦\n\n"
-    "<b>{bot_name}</b> helps you get a fresh invite link for a configured group or channel. "
-    "It is designed to make link access simple and help limit unwanted sharing.\n\n"
-    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\n"
-    "1. Open the Start page and choose one of the available buttons.\n"
-    "2. If you have received a {bot_name} invite link, open it in Telegram. "
-    "The bot will create a fresh invite for the selected destination.\n"
-    "3. Tap the invite button in the message to open the group or channel. "
-    "For private destinations, Telegram may ask you to send a join request.\n\n"
-    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\n"
-    "Each generated invite is temporary and expires after 2 minutes. "
-    "For public groups, an invite is limited to one member. "
-    "If a link has expired or stopped working, open the original {bot_name} link again "
-    "or ask the person who shared it for a new one.\n\n"
-    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\n"
-    "Use the available Start page buttons, or contact the person who provided your {bot_name} link. "
-    "Only destinations configured by the bot owner will appear here.</i>\n\n"
+    "<b>{bot_name}</b> makes sharing access to configured groups and channels simple. "
+    "Choose an available option on Start or open a Link Share invite link to get a fresh invite.\n\n"
+    "<b>✦ Hᴏᴡ ɪᴛ ᴡᴏʀᴋs</b>\n"
+    "Open the invite link in Telegram, then tap the button to join the selected group or channel. "
+    "Private chats may require a join request.\n\n"
+    "<b>✦ ɪɴᴠɪᴛᴇ ɴᴏᴛᴇs</b>\n"
+    "Invites expire in 2 minutes. Public-group links allow one member. "
+    "If a link expires, open the original link again to get a new one.\n\n"
     "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\n\n"
     "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\n"
-    "<b>➤ ɴᴀᴍᴇ :        {bot_mention}</b>\n"
-    "<b>➤ ᴄʀᴇᴀᴛᴏʀ :  ʏᴜᴛᴀ</b>\n"
-    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂ᴏᴋᴏ</b>\n"
+    "<b>➤ ɴᴀᴍᴇ : {bot_mention}</b>\n"
+    "<b>➤ ᴄʀᴇᴀᴛᴏʀ : ʏᴜᴛᴀ</b>\n"
+    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂ᴏᴋᴏ</b>\n"
     "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\n"
-    "<b>➤ ᴠᴇʀsɪᴏɴ :    ✧ ᴠ 0.1 ⚡</b>"
+    "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b></i>"
 )
 def render_default_about(bot_info):
     bot_name = html.escape(bot_info.full_name)
@@ -709,21 +701,15 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
     await call.answer()
-    # About is entirely code-defined; do not read or write About content in MongoDB.
+    # About is code-defined and always replaces the current Start message.
     body = render_default_about(await BOT.get_me())
-    has_media = bool(call.message.photo or call.message.animation or call.message.document)
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="Back",
-            callback_data="start:back_media" if has_media else "start:back",
-        )]
+        [InlineKeyboardButton(text="Back", callback_data="start:back")]
     ])
     try:
-        if has_media:
-            # About is longer than Telegram's 1024-character media-caption limit.
-            # Keep the original Start media message intact and show About separately.
-            await call.message.answer(
-                body,
+        if call.message.photo or call.message.animation or call.message.document:
+            await call.message.edit_caption(
+                caption=body,
                 reply_markup=markup,
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
             )
@@ -734,22 +720,13 @@ async def show_start_about(call: CallbackQuery):
                 link_preview_options=LinkPreviewOptions(is_disabled=True),
             )
     except TelegramAPIError:
-        log.exception("Could not show the code-defined About page")
-
-
-@dp.callback_query(F.data == "start:back_media")
-async def close_media_about(call: CallbackQuery):
-    await call.answer()
-    try:
-        await call.message.delete()
-    except TelegramAPIError:
-        log.exception("Could not delete the separate About message")
+        log.exception("Could not edit the Start message to show About")
 
 
 @dp.callback_query(F.data == "start:back")
 async def back_from_start_about(call: CallbackQuery):
     await call.answer()
-    # Restore the Start text and its configured URL buttons on the same message.
+    # Restore the original Start caption/text and its configured URL buttons.
     config = await read_start_config()
     body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
     markup = start_config_keyboard(config)
@@ -759,7 +736,7 @@ async def back_from_start_about(call: CallbackQuery):
         else:
             await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
-        log.exception("Could not edit the existing message back to the Start page")
+        log.exception("Could not restore the Start page after About")
 
 
 @dp.callback_query(F.data == "home")
