@@ -107,11 +107,11 @@ async def track_user_id(user_id: int):
         [{"$set": {"id": {"$let": {
             "vars": {"current": {"$ifNull": ["$id", ""]}, "new_id": value},
             "in": {"$cond": [
-                {"$in": ["$new_id", {"$split": [{"$ifNull": ["$id", ""]}, ", "]}]},
-                "$current",
+                {"$in": ["$$new_id", {"$split": [{"$ifNull": ["$id", ""]}, ", "]}]},
+                "$$current",
                 {"$cond": [
-                    {"$eq": ["$current", ""]}, "$new_id",
-                    {"$concat": ["$current", ", ", "$new_id"]}
+                    {"$eq": ["$$current", ""]}, "$$new_id",
+                    {"$concat": ["$$current", ", ", "$$new_id"]}
                 ]}
             ]}
         }}}}],
