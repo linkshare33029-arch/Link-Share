@@ -92,17 +92,32 @@ ui_state = CollectionProxy("owner_ui")
 users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
-LEGACY_DEFAULT_ABOUT_TEXT = (
-    LEGACY_DEFAULT_ABOUT_TEXT + "\\n\\n"
+DEFAULT_ABOUT_TEXT = (
+    "<i>✦ <b>ᴀʙᴏᴜᴛ ʟɪɴᴋ sʜᴀʀᴇ</b> ✦\\n\\n"
+    "<b>Link Share</b> helps you get a fresh invite link for a configured group or channel. "
+    "It is designed to make link access simple and help limit unwanted sharing.\\n\\n"
+    "<b>✦ Hᴏᴡ ᴛᴏ ᴜsᴇ</b>\\n"
+    "1. Open the Start page and choose one of the available buttons.\\n"
+    "2. If you have received a Link Share invite link, open it in Telegram. "
+    "The bot will create a fresh invite for the selected destination.\\n"
+    "3. Tap the invite button in the message to open the group or channel. "
+    "For private destinations, Telegram may ask you to send a join request.\\n\\n"
+    "<b>✦ Lɪɴᴋ ɴᴏᴛᴇs</b>\\n"
+    "Each generated invite is temporary and expires after 2 minutes. "
+    "For public groups, an invite is limited to one member. "
+    "If a link has expired or stopped working, open the original Link Share link again "
+    "or ask the person who shared it for a new one.\\n\\n"
+    "<b>✦ Nᴇᴇᴅ ʜᴇʟᴘ?</b>\\n"
+    "Use the available Start page buttons, or contact the person who provided your Link Share link. "
+    "Only destinations configured by the bot owner will appear here.</i>\\n\\n"
     "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\\n\\n"
     "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\\n"
     "<b>➤ ɴᴀᴍᴇ :        {bot_mention}</b>\\n"
     "<b>➤ ᴄʀᴇᴀᴛᴏʀ :  ʏᴜᴛᴀ</b>\\n"
-    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂𝓸𝓴𝓸</b>\\n"
+    "<b>➤ ᴏᴡɴᴇʀ :      𝓚𝔂ᴏᴋᴏ</b>\\n"
     "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\\n"
     "<b>➤ ᴠᴇʀsɪᴏɴ :    ✧ ᴠ 0.1 ⚡</b>"
 )
-
 def render_default_about(bot_info):
     bot_name = html.escape(bot_info.full_name)
     if bot_info.username:
@@ -115,7 +130,7 @@ def render_default_about(bot_info):
 
 DEFAULT_START_CONFIG = {
     "_id": START_CONFIG_ID, "enabled": True, "text": "",
-    "about_text": DEFAULT_ABOUT_TEXT, "media_type": None, "media_file_id": None,
+    "media_type": None, "media_file_id": None,
     "button1_text": "", "button1_url": "", "button2_text": "", "button2_url": "",
     "button3_text": "", "button3_url": "", "button4_text": "", "button4_url": "",
 }
@@ -219,7 +234,6 @@ def start_settings_keyboard():
          InlineKeyboardButton(text=small_caps_label("Button 2"), callback_data="startcfg:button2")],
         [InlineKeyboardButton(text=small_caps_label("Button 3"), callback_data="startcfg:button3"),
          InlineKeyboardButton(text=small_caps_label("Button 4"), callback_data="startcfg:button4")],
-        [InlineKeyboardButton(text=small_caps_label("About Details"), callback_data="startcfg:about")],
         [InlineKeyboardButton(text=small_caps_label("Reset Start Settings"), callback_data="startcfg:reset")],
     ])
 
@@ -228,7 +242,7 @@ def start_settings_body(config):
     media_status = html.escape(str(config.get("media_type") or "not set"))
     return (
         "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
-        "<i>Configure the /start page and About details below.</i>\n\n"
+        "<i>Configure the /start page below. About details are built into the bot.</i>\n\n"
         f"<i>Media: {media_status}</i>\n"
         "<i>Buttons: Up to 4 URL buttons + About</i>"
     )
@@ -658,7 +672,7 @@ async def start_settings_callback(call: CallbackQuery):
         return
     prompt_action = {
         "caption": "start_caption", "media": "start_media",
-        "about": "start_about", "button1": "start_button_1", "button2": "start_button_2",
+        "button1": "start_button_1", "button2": "start_button_2",
         "button3": "start_button_3", "button4": "start_button_4",
     }.get(action)
     if not prompt_action:
@@ -671,7 +685,6 @@ async def start_settings_callback(call: CallbackQuery):
     prompts = {
         "start_caption": "Send the new /start caption as text (HTML is supported).",
         "start_media": "Send one photo or GIF to use on the /start page.",
-        "start_about": "Send the About page details as text (HTML is supported).",
         "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend REMOVE to remove it.",
         "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend REMOVE to remove it.",
         "start_button_3": "Send Button 3 as: Button Name | https://example.com\nSend REMOVE to remove it.",
@@ -698,9 +711,8 @@ async def show_start_about(call: CallbackQuery):
     await call.answer()
     # Navigation is deliberately read-only: no About/Back state is persisted.
     config = await read_start_config()
-    body = config.get("about_text") or DEFAULT_ABOUT_TEXT
-    if body == LEGACY_DEFAULT_ABOUT_TEXT or body == DEFAULT_ABOUT_TEXT:
-        body = render_default_about(await BOT.get_me())
+    # About content is code-defined; ignore any legacy database about_text.
+    body = render_default_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Back", callback_data="start:back")]
     ])
@@ -1076,17 +1088,6 @@ async def owner_input(message: Message):
             await message.answer(f"Start caption is too long. Current Telegram limit is {limit} characters.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
-    elif action == "start_about":
-        value = message.text or message.caption
-        if value is None:
-            await message.answer("Please send text for the About page.")
-            return
-        about_cfg = await get_start_config()
-        limit = 1024 if about_cfg.get("media_file_id") else 4096
-        if telegram_text_length(value) > limit:
-            await message.answer(f"About text is too long. Current Telegram limit is {limit} characters.")
-            return
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_text": value}}, upsert=True)
     elif action == "start_media":
         if message.photo:
             media_type, file_id = "photo", message.photo[-1].file_id
@@ -1097,7 +1098,7 @@ async def owner_input(message: Message):
             return
         start_cfg = await get_start_config()
         start_text = start_cfg.get("text") or ""
-        about_text = start_cfg.get("about_text") or DEFAULT_ABOUT_TEXT
+        about_text = render_default_about(await BOT.get_me())
         if telegram_text_length(start_text) > 1024 or telegram_text_length(about_text) > 1024:
             await message.answer(
                 "Media was not changed. Telegram allows only 1024 characters in a media caption. "
