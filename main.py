@@ -253,7 +253,35 @@ def start_button_submenu_keyboard(index):
 
 async def show_start_settings(message: Message):
     config = await get_start_config()
-    await message.answer(start_settings_body(config), reply_markup=start_settings_keyboard(config))
+    body, markup = start_settings_body(config), start_settings_keyboard(config)
+    panel_key = f"settings:{message.chat.id}"
+    home_key = f"home:{message.chat.id}"
+    existing = await ui_state.find_one({"_id": panel_key})
+    if not existing:
+        existing = await ui_state.find_one({"_id": home_key})
+    target_id = (existing or {}).get("message_id")
+    if target_id:
+        try:
+            await BOT.edit_message_text(
+                body, chat_id=message.chat.id, message_id=target_id, reply_markup=markup
+            )
+            await ui_state.update_one(
+                {"_id": panel_key}, {"$set": {"message_id": target_id}}, upsert=True
+            )
+            await ui_state.delete_one({"_id": home_key})
+            return
+        except TelegramAPIError:
+            log.info("Could not reuse previous owner panel; creating a replacement.")
+    sent = await message.answer(body, reply_markup=markup)
+    await ui_state.update_one(
+        {"_id": panel_key}, {"$set": {"message_id": sent.message_id}}, upsert=True
+    )
+    await ui_state.delete_one({"_id": home_key})
+
+
+async def clear_owner_prompt(owner_id: int):
+    """Clear pending input state when an owner navigates away from a settings prompt."""
+    await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
 
 def telegram_text_length(value: str) -> int:
     """Count text as UTF-16 code units, matching Telegram's entity length rules."""
@@ -701,6 +729,7 @@ async def set_command(message: Message):
 async def setstart_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await clear_owner_prompt(message.from_user.id)
     await show_start_settings(message)
     try:
         await message.delete()
@@ -812,21 +841,20 @@ async def show_start_about(call: CallbackQuery):
     # About is code-defined and always replaces the current Start message.
     body = render_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Back", callback_data="start:back")]
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="start:back")]
     ])
     try:
         if call.message.photo or call.message.animation or call.message.document:
-            await call.message.edit_caption(
-                caption=body,
-                reply_markup=markup,
-                link_preview_options=LinkPreviewOptions(is_disabled=True),
-            )
+            if telegram_text_length(body) > 1024:
+                await call.answer(
+                    "About text exceeds Telegram's 1024-character media-caption limit. "
+                    "Shorten it in about.py to show it on this same media message.",
+                    show_alert=True,
+                )
+                return
+            await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
-            await call.message.edit_text(
-                body,
-                reply_markup=markup,
-                link_preview_options=LinkPreviewOptions(is_disabled=True),
-            )
+            await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
         log.exception("Could not edit the Start message to show About")
 
@@ -840,6 +868,12 @@ async def back_from_start_about(call: CallbackQuery):
     markup = start_config_keyboard(config)
     try:
         if call.message.photo or call.message.animation or call.message.document:
+            if telegram_text_length(body) > 1024:
+                await call.answer(
+                    "The configured Start caption exceeds Telegram's 1024-character media-caption limit.",
+                    show_alert=True,
+                )
+                return
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
             await call.message.edit_text(body, reply_markup=markup)
@@ -1180,38 +1214,69 @@ async def owner_input(message: Message):
         return
     action = pending["action"]
 
+    async def reject_input(notice: str):
+        # Never leave rejected owner input visible as a stray chat message.
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            pass
+        prompt = notice
+        if action.startswith("start_button_text_"):
+            prompt += "\\n\\nSend button text (1–64 characters)."
+        elif action.startswith("start_button_url_"):
+            prompt += "\\n\\nSend a complete http:// or https:// URL."
+        elif action == "start_caption":
+            prompt += "\\n\\nSend the new /start caption."
+        elif action == "start_media":
+            prompt += "\\n\\nSend one photo or GIF."
+        elif action == "caption":
+            prompt += "\\n\\nSend the new Link Post caption."
+        elif action == "button":
+            prompt += "\\n\\nSend button text (1–64 characters)."
+        elif action == "media":
+            prompt += "\\n\\nSend a photo or GIF."
+        await BOT.edit_message_text(
+            f"<i>{html.escape(prompt)}</i>",
+            chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data=(
+                    "startcfg:cancel" if action.startswith("start_") else "settings"
+                ))
+            ]]),
+        )
+
     if action.startswith("start_button_text_"):
-        if not message.text or not message.text.strip() or len(message.text.strip()) > 64:
-            await message.answer("Send button text between 1 and 64 characters.")
+        text_value = (message.text or "").strip()
+        if not text_value or len(text_value) > 64:
+            await reject_input("Invalid button text.")
             return
         index = action.rsplit("_", 1)[1]
         await ui_state.update_one({"_id": f"prompt:{message.from_user.id}"}, {"$set": {
-            "button_text": message.text.strip(), "action": f"start_button_url_{index}",
+            "button_text": text_value, "action": f"start_button_url_{index}",
         }})
         try:
             await message.delete()
         except TelegramAPIError:
             pass
         await BOT.edit_message_text(
-            f"<i>Now send the URL for Button {index}, starting with https:// or http://.</i>",
+            f"<i>Button {index} text saved. Now send its URL (http:// or https://).</i>",
             chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")
             ]]),
         )
         return
+
     if action.startswith("start_button_url_"):
         index = action.rsplit("_", 1)[1]
         url = (message.text or "").strip()
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            await message.answer("Invalid URL. Send a complete http:// or https:// link.")
+            await reject_input("Invalid URL.")
             return
-        prior = await ui_state.find_one({"_id": f"prompt:{message.from_user.id}"})
-        # The text is stored temporarily in the prompt document between the two steps.
-        label = (prior or {}).get("button_text", "")
+        label = (pending or {}).get("button_text", "")
         if not label:
-            await message.answer("Button text was not found. Start the button setup again.")
+            await reject_input("Button text is missing. Cancel and start again.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
             f"button{index}_text": label, f"button{index}_url": url,
@@ -1220,12 +1285,12 @@ async def owner_input(message: Message):
     elif action == "start_caption":
         value = message.text or message.caption
         if value is None:
-            await message.answer("Please send text for the Start caption.")
+            await reject_input("Please send text for the Start caption.")
             return
         start_cfg = await get_start_config()
         limit = 1024 if start_cfg.get("media_file_id") else 4096
         if telegram_text_length(value) > limit:
-            await message.answer(f"Start caption is too long. Telegram allows {limit} characters here.")
+            await reject_input(f"Caption is too long. Telegram allows {limit} characters here.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
 
@@ -1235,11 +1300,11 @@ async def owner_input(message: Message):
         elif message.animation:
             media_type, file_id = "animation", message.animation.file_id
         else:
-            await message.answer("Please send a photo or GIF.")
+            await reject_input("Please send a photo or GIF.")
             return
         start_cfg = await get_start_config()
         if telegram_text_length(start_cfg.get("text") or "") > 1024:
-            await message.answer("Media not changed: shorten the Start caption to 1024 characters or fewer first.")
+            await reject_input("Media not changed: shorten the Start caption to 1024 characters first.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
             "media_type": media_type, "media_file_id": file_id,
@@ -1248,12 +1313,12 @@ async def owner_input(message: Message):
     elif action == "caption":
         text_value = message.text or message.caption
         if not text_value:
-            await message.answer("Please send text for the caption.")
+            await reject_input("Please send text for the caption.")
             return
         cfg_now = await get_config()
         caption_limit = 1024 if cfg_now.get("media_file_id") else 4096
         if telegram_text_length(text_value) > caption_limit:
-            await message.answer(f"Caption is too long. Telegram allows up to {caption_limit} characters.")
+            await reject_input(f"Caption is too long. Telegram allows up to {caption_limit} characters.")
             return
         entities = message.entities if message.text else message.caption_entities
         await settings.update_one({"_id": "post"}, {"$set": {
@@ -1264,7 +1329,7 @@ async def owner_input(message: Message):
 
     elif action == "button":
         if not message.text or len(message.text) > 64:
-            await message.answer("Please send button text between 1 and 64 characters.")
+            await reject_input("Please send button text between 1 and 64 characters.")
             return
         await settings.update_one({"_id": "post"}, {"$set": {"button": message.text}}, upsert=True)
         invalidate_config_cache()
@@ -1275,11 +1340,11 @@ async def owner_input(message: Message):
         elif message.animation:
             media_type, file_id = "animation", message.animation.file_id
         else:
-            await message.answer("Please send only a picture or GIF.")
+            await reject_input("Please send only a picture or GIF.")
             return
         current_config = await get_config()
         if telegram_text_length(current_config.get("caption", DEFAULT_CAPTION)) > 1024:
-            await message.answer("Media not changed: shorten the post caption to 1024 characters or fewer first.")
+            await reject_input("Media not changed: shorten the post caption to 1024 characters first.")
             return
         await settings.update_one({"_id": "post"}, {"$set": {
             "media_type": media_type, "media_file_id": file_id,
@@ -1295,8 +1360,8 @@ async def owner_input(message: Message):
     except TelegramAPIError:
         pass
     try:
-        config = await get_start_config()
         if action.startswith("start_"):
+            config = await get_start_config()
             await BOT.edit_message_text(
                 start_settings_body(config),
                 chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
@@ -1304,7 +1369,7 @@ async def owner_input(message: Message):
             )
         else:
             await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the buttons below:</i>",
+                "<b><u>LINKS POST</u></b>\\n\\n<i>Edit caption, media, and button using the buttons below:</i>",
                 chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
                 reply_markup=settings_keyboard(),
             )
