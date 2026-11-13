@@ -3,6 +3,7 @@ import contextvars
 import html
 import logging
 import os
+import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -222,7 +223,7 @@ def start_submenu_keyboard(kind, config):
     if kind == "caption":
         has_value = bool((config.get("text") or "").strip())
         first = InlineKeyboardButton(
-            text=small_caps_label("Edit") if has_value else "➕",
+            text=small_caps_label("Edit") if has_value else "✚",
             callback_data="startcfg:caption_edit",
         )
         rows = [[first, InlineKeyboardButton(text=small_caps_label("Show"), callback_data="startcfg:caption_show")],
@@ -733,6 +734,9 @@ async def start_settings_callback(call: CallbackQuery):
         return
     if action == "caption_show":
         value = config.get("text") or "No custom caption is set. Default Start text is active."
+        value = html.unescape(re.sub(r"<[^>]*>", "", value))
+        if len(value) > 200:
+            value = value[:197] + "..."
         await call.answer(value, show_alert=True)
         return
     if action == "caption_default":
