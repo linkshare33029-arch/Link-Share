@@ -1503,15 +1503,22 @@ async def owner_input(message: Message):
             prompt += "\n\nSend button text (1–64 characters)."
         elif action == "media":
             prompt += "\n\nSend a photo or GIF."
-        await BOT.edit_message_text(
-            f"<i>{html.escape(prompt)}</i>",
-            chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
+        if pending.get("prompt_message_id"):
+            try:
+                await BOT.delete_message(pending["panel_chat_id"], pending["prompt_message_id"])
+            except TelegramAPIError:
+                pass
+        retry_prompt = await BOT.send_message(
+            pending["panel_chat_id"], f"<i>{html.escape(prompt)}</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data=(
                     "startcfg:cancel" if action.startswith("start_") else "settings"
                 ))
             ]]),
         )
+        await ui_state.update_one({"_id": f"prompt:{message.from_user.id}"}, {"$set": {
+            "prompt_message_id": retry_prompt.message_id,
+        }})
 
     if action.startswith("start_button_text_"):
         text_value = (message.text or "").strip()
@@ -1622,7 +1629,7 @@ async def owner_input(message: Message):
         await ui_state.delete_one({"_id": f"prompt:{message.from_user.id}"})
         return
 
-    await ui_state.delete_one({"_id": f"prompt:{message.from_user.id}"})
+    await clear_owner_prompt(message.from_user.id)
     try:
         await message.delete()
     except TelegramAPIError:
