@@ -908,7 +908,7 @@ async def start_settings_callback(call: CallbackQuery):
 
     if action == "caption":
         await call.answer()
-        body = "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>
+        body = "<b><u>CAPTION</u></b>\n\n<i>Customize your bot's start message Caption.</i>"
         await edit_panel(call.message, body, start_submenu_keyboard("caption", config))
         return
     if action == "caption_show":
@@ -927,7 +927,7 @@ async def start_settings_callback(call: CallbackQuery):
         return
     if action == "media":
         await call.answer()
-        body = "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>
+        body = "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>"
         await edit_panel(call.message, body, start_submenu_keyboard("media", config))
         return
     if action == "media_remove":
