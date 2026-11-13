@@ -139,7 +139,8 @@ async def get_start_config():
     return config or DEFAULT_START_CONFIG.copy()
 
 def start_config_keyboard(config):
-    rows = [[InlineKeyboardButton(text=small_caps_label("About"), callback_data="start:about")]]
+    # Keep the four configured slots in their fixed two-row positions.
+    rows = []
     for first, second in ((1, 2), (3, 4)):
         row = []
         for index in (first, second):
@@ -150,6 +151,8 @@ def start_config_keyboard(config):
                 row.append(InlineKeyboardButton(text=small_caps_label(label[:64]), url=url))
         if row:
             rows.append(row)
+    # About is always the final row, below the two configured button rows.
+    rows.append([InlineKeyboardButton(text=small_caps_label("About"), callback_data="start:about")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def send_start_page(message: Message):
@@ -223,7 +226,7 @@ def start_submenu_keyboard(kind, config):
     if kind == "caption":
         has_value = bool((config.get("text") or "").strip())
         first = InlineKeyboardButton(
-            text=small_caps_label("Edit") if has_value else "✚",
+            text=small_caps_label("Edit") if has_value else "✚ " + small_caps_label("Add"),
             callback_data="startcfg:caption_edit",
         )
         rows = [[first, InlineKeyboardButton(text=small_caps_label("Show"), callback_data="startcfg:caption_show")],
@@ -231,7 +234,7 @@ def start_submenu_keyboard(kind, config):
     else:
         has_value = bool(config.get("media_file_id"))
         first = InlineKeyboardButton(
-            text=small_caps_label("Edit") if has_value else "➕",
+            text=small_caps_label("Edit") if has_value else "✚ " + small_caps_label("Add"),
             callback_data="startcfg:media_edit",
         )
         rows = [[first]]
@@ -397,8 +400,7 @@ async def finish_owner_command(message: Message, old_panel_ids, keep_panel_id=No
         except TelegramAPIError:
             pass
     await asyncio.gather(
-        *(safe_delete(message_id) for message_id in delete_ids),
-        safe_delete_command(),
+        *(safe_delete(message_id) for message_id in delete_ids),        safe_delete_command(),
     )
 
 async def sync_chat_titles():
@@ -797,8 +799,7 @@ async def start_settings_callback(call: CallbackQuery):
         "action": prompt_action, "panel_chat_id": call.message.chat.id,
         "panel_message_id": call.message.message_id, "updated_at": datetime.now(timezone.utc),
     }}, upsert=True)
-    await call.answer()
-    await edit_panel(call.message, f"<i>{html.escape(prompt_text)}</i>", InlineKeyboardMarkup(inline_keyboard=[
+    await call.answer()    await edit_panel(call.message, f"<i>{html.escape(prompt_text)}</i>", InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
 
@@ -1197,7 +1198,6 @@ async def owner_input(message: Message):
             ]]),
         )
         return
-
     if action.startswith("start_button_url_"):
         index = action.rsplit("_", 1)[1]
         url = (message.text or "").strip()
@@ -1597,8 +1597,7 @@ async def main():
         webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_urlsafe(32)
         app = web.Application()
         app["webhook_secret"] = webhook_secret
-        app["bots"] = bot_registry
-        app.router.add_get("/", health)
+        app["bots"] = bot_registry        app.router.add_get("/", health)
         app.router.add_get("/health", health)
 
         if public_url:
