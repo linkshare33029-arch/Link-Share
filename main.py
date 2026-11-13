@@ -198,17 +198,17 @@ async def send_start_page(message: Message):
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
         if media_id and media_type == "photo":
-            if telegram_text_length(body) <= 1024:
+            if telegram_html_length(body) <= 1024:
                 await message.answer_photo(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 await message.answer_photo(media_id, reply_markup=markup)
-                await message.answer(body)
+                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
         elif media_id and media_type == "animation":
-            if len(body) <= 1024:
+            if telegram_html_length(body) <= 1024:
                 await message.answer_animation(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 await message.answer_animation(media_id, reply_markup=markup)
-                await message.answer(body)
+                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
             await message.answer(body, reply_markup=markup)
     except TelegramAPIError:
@@ -915,7 +915,7 @@ async def show_start_about(call: CallbackQuery):
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
             await call.answer()
-            await call.message.edit_text(body, reply_markup=markup)
+            await call.message.edit_text(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
     except TelegramAPIError:
         log.exception("Could not edit the Start message to show About")
 
@@ -924,11 +924,11 @@ async def show_start_about(call: CallbackQuery):
 async def back_from_start_about(call: CallbackQuery):
     # Restore the original Start caption/text and its configured URL buttons.
     config = await read_start_config()
-    body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
+    body = render_start_text(config, await BOT.get_me(), call.from_user)
     markup = start_config_keyboard(config)
     try:
         if call.message.photo or call.message.animation or call.message.document:
-            if telegram_text_length(body) > 1024:
+            if telegram_html_length(body) > 1024:
                 await call.answer(
                     "The configured Start caption exceeds Telegram's 1024-character media-caption limit.",
                     show_alert=True,
@@ -938,7 +938,7 @@ async def back_from_start_about(call: CallbackQuery):
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
             await call.answer()
-            await call.message.edit_text(body, reply_markup=markup)
+            await call.message.edit_text(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
     except TelegramAPIError:
         log.exception("Could not restore the Start page after About")
 
