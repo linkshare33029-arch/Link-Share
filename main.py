@@ -837,7 +837,6 @@ async def start_settings_callback(call: CallbackQuery):
 
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
-    await call.answer()
     # About is code-defined and always replaces the current Start message.
     body = render_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
@@ -852,8 +851,10 @@ async def show_start_about(call: CallbackQuery):
                     show_alert=True,
                 )
                 return
+            await call.answer()
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
+            await call.answer()
             await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
         log.exception("Could not edit the Start message to show About")
@@ -861,7 +862,6 @@ async def show_start_about(call: CallbackQuery):
 
 @dp.callback_query(F.data == "start:back")
 async def back_from_start_about(call: CallbackQuery):
-    await call.answer()
     # Restore the original Start caption/text and its configured URL buttons.
     config = await read_start_config()
     body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
@@ -874,8 +874,10 @@ async def back_from_start_about(call: CallbackQuery):
                     show_alert=True,
                 )
                 return
+            await call.answer()
             await call.message.edit_caption(caption=body, reply_markup=markup)
         else:
+            await call.answer()
             await call.message.edit_text(body, reply_markup=markup)
     except TelegramAPIError:
         log.exception("Could not restore the Start page after About")
