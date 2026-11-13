@@ -269,7 +269,7 @@ def start_submenu_keyboard(kind, config):
     else:
         has_value = bool(config.get("media_file_id"))
         first = InlineKeyboardButton(
-            text=small_caps_label("Edit") if has_value else "✚ " + small_caps_label("Add"),
+            text="✚ " + small_caps_label("Add"),
             callback_data="startcfg:media_edit",
         )
         rows = [[first]]
