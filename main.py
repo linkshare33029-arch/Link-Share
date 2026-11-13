@@ -20,6 +20,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 from pymongo import AsyncMongoClient
+from about import render_about
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("link-share")
@@ -92,34 +93,6 @@ ui_state = CollectionProxy("owner_ui")
 users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
-DEFAULT_ABOUT_TEXT = (
-    "<i>✦ <b>ᴀʙᴏᴜᴛ {bot_name}</b> ✦\n\n"
-    "<b>{bot_name}</b> makes sharing access to configured groups and channels simple. "
-    "Choose an available option on Start or open a {bot_name} invite link to get a fresh invite.\n\n"
-    "<b>✦ Hᴏᴡ ɪᴛ ᴡᴏʀᴋs</b>\n"
-    "Open the invite link in Telegram, then tap the button to join the selected group or channel. "
-    "For private chats, users must receive approval before joining.\n\n"
-    "<b>✦ ɪɴᴠɪᴛᴇ ɴᴏᴛᴇs</b>\n"
-    "Invites expire in 2 minutes. Public-group links allow one member. "
-    "If a link expires, open the original link again to get a new one.\n\n"
-    "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\n\n"
-    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\n"
-    "<b>➤ ɴᴀᴍᴇ : {bot_mention}</b>\n"
-    "<b>➤ ᴄʀᴇᴀᴛᴏʀ : ʏᴜᴛᴀ</b>\n"
-    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂ᴏᴋᴏ</b>\n"
-    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\n"
-    "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b></i>"
-)
-def render_default_about(bot_info):
-    bot_name = html.escape(bot_info.full_name)
-    if bot_info.username:
-        username = html.escape(bot_info.username, quote=True)
-        bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>'
-    else:
-        bot_mention = bot_name
-    anime = '<a href="http://t.me/lexianime">Lexi Anime</a>'
-    return DEFAULT_ABOUT_TEXT.format(bot_name=bot_name, bot_mention=bot_mention, anime=anime)
-
 DEFAULT_START_CONFIG = {
     "_id": START_CONFIG_ID, "enabled": True, "text": "",
     "media_type": None, "media_file_id": None,
@@ -165,22 +138,17 @@ async def get_start_config():
     return config or DEFAULT_START_CONFIG.copy()
 
 def start_config_keyboard(config):
-    # Keep About alone in the first row so Telegram renders it full-width.
-    rows, row = [[InlineKeyboardButton(
-        text=small_caps_label("About"),
-        callback_data="start:about",
-    )]], []
-    for index in range(1, 5):
-        label = (config.get(f"button{index}_text") or "").strip()
-        url = (config.get(f"button{index}_url") or "").strip()
-        parsed = urlparse(url)
-        if label and parsed.scheme in {"http", "https"} and parsed.netloc:
-            row.append(InlineKeyboardButton(text=label[:64], url=url))
-            if len(row) == 2:
-                rows.append(row)
-                row = []
-    if row:
-        rows.append(row)
+    rows = [[InlineKeyboardButton(text=small_caps_label("About"), callback_data="start:about")]]
+    for first, second in ((1, 2), (3, 4)):
+        row = []
+        for index in (first, second):
+            label = (config.get(f"button{index}_text") or "").strip()
+            url = (config.get(f"button{index}_url") or "").strip()
+            parsed = urlparse(url)
+            if label and parsed.scheme in {"http", "https"} and parsed.netloc:
+                row.append(InlineKeyboardButton(text=small_caps_label(label[:64]), url=url))
+        if row:
+            rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def send_start_page(message: Message):
@@ -217,32 +185,71 @@ def small_caps_label(value: str) -> str:
     return value.translate(table)
 
 
-def start_settings_keyboard():
+def start_settings_keyboard(config):
+    caption_on = bool((config.get("text") or "").strip())
+    media_on = bool(config.get("media_file_id"))
+    states = [bool((config.get(f"button{i}_text") or "").strip() and (config.get(f"button{i}_url") or "").strip()) for i in range(1, 5)]
+    mark = lambda enabled: "✅" if enabled else "❌"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=small_caps_label("Start Caption"), callback_data="startcfg:caption")],
-        [InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media"),
-         InlineKeyboardButton(text=small_caps_label("Remove Media"), callback_data="startcfg:remove_media")],
-        [InlineKeyboardButton(text=small_caps_label("Button 1"), callback_data="startcfg:button1"),
-         InlineKeyboardButton(text=small_caps_label("Button 2"), callback_data="startcfg:button2")],
-        [InlineKeyboardButton(text=small_caps_label("Button 3"), callback_data="startcfg:button3"),
-         InlineKeyboardButton(text=small_caps_label("Button 4"), callback_data="startcfg:button4")],
-        [InlineKeyboardButton(text=small_caps_label("Reset Start Settings"), callback_data="startcfg:reset")],
+        [InlineKeyboardButton(text=small_caps_label("Caption"), callback_data="startcfg:caption"),
+         InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media")],
+        [InlineKeyboardButton(text=f"{mark(states[0])} {small_caps_label('Button 1')}", callback_data="startcfg:button1"),
+         InlineKeyboardButton(text=f"{mark(states[1])} {small_caps_label('Button 2')}", callback_data="startcfg:button2")],
+        [InlineKeyboardButton(text=f"{mark(states[2])} {small_caps_label('Button 3')}", callback_data="startcfg:button3"),
+         InlineKeyboardButton(text=f"{mark(states[3])} {small_caps_label('Button 4')}", callback_data="startcfg:button4")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:close")],
     ])
 
 
 def start_settings_body(config):
-    media_status = html.escape(str(config.get("media_type") or "not set"))
+    caption_on = bool((config.get("text") or "").strip())
+    media_on = bool(config.get("media_file_id"))
+    statuses = [
+        f"<i>Caption: {'✅ Enabled' if caption_on else '❌ Default'}</i>",
+        f"<i>Media: {'✅ Added' if media_on else '❌ Not added'}</i>",
+    ]
+    for i in range(1, 5):
+        enabled = bool((config.get(f"button{i}_text") or "").strip() and (config.get(f"button{i}_url") or "").strip())
+        statuses.append(f"<i>Button {i}: {'✅ Enabled' if enabled else '❌ Disabled'}</i>")
     return (
-        "<b><u>START MESSAGE SETTINGS</u></b>\n\n"
-        "<i>Configure the /start page below. About details are built into the bot.</i>\n\n"
-        f"<i>Media: {media_status}</i>\n"
-        "<i>Buttons: Up to 4 URL buttons + About</i>"
+        "<b><i>✦ sᴛᴀʀᴛ ᴘᴀɢᴇ sᴇᴛᴛɪɴɢs</i></b>\n\n"
+        "<i>Manage the caption, media and four fixed-position buttons shown on /start.</i>\n\n"
+        + "\n".join(statuses)
     )
+
+
+def start_submenu_keyboard(kind, config):
+    if kind == "caption":
+        has_value = bool((config.get("text") or "").strip())
+        first = InlineKeyboardButton(
+            text=small_caps_label("Edit") if has_value else "➕",
+            callback_data="startcfg:caption_edit",
+        )
+        rows = [[first, InlineKeyboardButton(text=small_caps_label("Show"), callback_data="startcfg:caption_show")],
+                [InlineKeyboardButton(text=small_caps_label("Default"), callback_data="startcfg:caption_default")]]
+    else:
+        has_value = bool(config.get("media_file_id"))
+        first = InlineKeyboardButton(
+            text=small_caps_label("Edit") if has_value else "➕",
+            callback_data="startcfg:media_edit",
+        )
+        rows = [[first]]
+        if has_value:
+            rows[0].append(InlineKeyboardButton(text=small_caps_label("Remove"), callback_data="startcfg:media_remove"))
+    rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def start_button_submenu_keyboard(index):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=small_caps_label("Disable"), callback_data=f"startcfg:button{index}")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:home")],
+    ])
 
 
 async def show_start_settings(message: Message):
     config = await get_start_config()
-    await message.answer(start_settings_body(config), reply_markup=start_settings_keyboard())
+    await message.answer(start_settings_body(config), reply_markup=start_settings_keyboard(config))
 
 def telegram_text_length(value: str) -> int:
     """Count text as UTF-16 code units, matching Telegram's entity length rules."""
@@ -703,45 +710,85 @@ async def start_settings_callback(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     action = call.data.split(":", 1)[1]
-    if action == "cancel":
-        await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
-        await call.answer("Cancelled")
-        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
+    config = await get_start_config()
+
+    if action in {"home", "close"}:
+        await call.answer()
+        if action == "close":
+            try:
+                await call.message.delete()
+            except TelegramAPIError:
+                pass
+        else:
+            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
         return
-    if action == "remove_media":
-        await settings.update_one({"_id": START_CONFIG_ID},
-            {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
-        await call.answer("Start media removed")
-        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
+
+    if action == "caption":
+        await call.answer()
+        body = "<b><i>✦ ᴄᴀᴘᴛɪᴏɴ sᴇᴛᴛɪɴɢs</i></b>\n\n" + (
+            "<i>✅ A custom caption is currently set.</i>" if (config.get("text") or "").strip()
+            else "<i>❌ No custom caption. The default Start text is active.</i>"
+        )
+        await edit_panel(call.message, body, start_submenu_keyboard("caption", config))
         return
-    if action == "reset":
-        values = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": values}, upsert=True)
-        await call.answer("Start settings reset")
-        await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
+    if action == "caption_show":
+        value = config.get("text") or "No custom caption is set. Default Start text is active."
+        await call.answer(value, show_alert=True)
         return
-    prompt_action = {
-        "caption": "start_caption", "media": "start_media",
-        "button1": "start_button_1", "button2": "start_button_2",
-        "button3": "start_button_3", "button4": "start_button_4",
-    }.get(action)
-    if not prompt_action:
+    if action == "caption_default":
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": ""}}, upsert=True)
+        config = await get_start_config()
+        await call.answer("Default caption restored")
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        return
+    if action == "media":
+        await call.answer()
+        body = "<b><i>✦ ᴍᴇᴅɪᴀ sᴇᴛᴛɪɴɢs</i></b>\n\n" + (
+            "<i>✅ Media is currently added.</i>" if config.get("media_file_id")
+            else "<i>❌ No media added yet.</i>"
+        )
+        await edit_panel(call.message, body, start_submenu_keyboard("media", config))
+        return
+    if action == "media_remove":
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
+        config = await get_start_config()
+        await call.answer("Media removed")
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        return
+
+    prompt_action = None
+    prompt_text = None
+    if action == "caption_edit":
+        prompt_action, prompt_text = "start_caption", "Send the new /start caption. HTML formatting is supported."
+    elif action == "media_edit":
+        prompt_action, prompt_text = "start_media", "Send one photo or GIF for the /start page."
+    elif action.startswith("button") and action[6:].isdigit():
+        index = int(action[6:])
+        if index not in range(1, 5):
+            await call.answer("Invalid button", show_alert=True)
+            return
+        label = (config.get(f"button{index}_text") or "").strip()
+        url = (config.get(f"button{index}_url") or "").strip()
+        if label and url:
+            await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
+                f"button{index}_text": "", f"button{index}_url": "",
+            }}, upsert=True)
+            config = await get_start_config()
+            await call.answer(f"Button {index} disabled")
+            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+            return
+        prompt_action = f"start_button_text_{index}"
+        prompt_text = f"Send the text for Button {index} (1–64 characters)."
+    else:
         await call.answer("Unknown setting", show_alert=True)
         return
+
     await ui_state.update_one({"_id": f"prompt:{call.from_user.id}"}, {"$set": {
         "action": prompt_action, "panel_chat_id": call.message.chat.id,
         "panel_message_id": call.message.message_id, "updated_at": datetime.now(timezone.utc),
     }}, upsert=True)
-    prompts = {
-        "start_caption": "Send the new /start caption as text (HTML is supported).",
-        "start_media": "Send one photo or GIF to use on the /start page.",
-        "start_button_1": "Send Button 1 as: Button Name | https://example.com\nSend REMOVE to remove it.",
-        "start_button_2": "Send Button 2 as: Button Name | https://example.com\nSend REMOVE to remove it.",
-        "start_button_3": "Send Button 3 as: Button Name | https://example.com\nSend REMOVE to remove it.",
-        "start_button_4": "Send Button 4 as: Button Name | https://example.com\nSend REMOVE to remove it.",
-    }
     await call.answer()
-    await edit_panel(call.message, f"<i>{html.escape(prompts[prompt_action])}</i>", InlineKeyboardMarkup(inline_keyboard=[
+    await edit_panel(call.message, f"<i>{html.escape(prompt_text)}</i>", InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
 
@@ -752,15 +799,16 @@ async def cancel_start_settings_prompt(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+    config = await get_start_config()
     await call.answer("Cancelled")
-    await edit_panel(call.message, start_settings_body(await get_start_config()), start_settings_keyboard())
+    await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
 
 
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
     await call.answer()
     # About is code-defined and always replaces the current Start message.
-    body = render_default_about(await BOT.get_me())
+    body = render_about(await BOT.get_me())
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Back", callback_data="start:back")]
     ])
@@ -1129,7 +1177,46 @@ async def owner_input(message: Message):
     if not pending:
         return
     action = pending["action"]
-    if action == "start_caption":
+
+    if action.startswith("start_button_text_"):
+        if not message.text or not message.text.strip() or len(message.text.strip()) > 64:
+            await message.answer("Send button text between 1 and 64 characters.")
+            return
+        index = action.rsplit("_", 1)[1]
+        await ui_state.update_one({"_id": f"prompt:{message.from_user.id}"}, {"$set": {
+            "button_text": message.text.strip(), "action": f"start_button_url_{index}",
+        }})
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            pass
+        await BOT.edit_message_text(
+            f"<i>Now send the URL for Button {index}, starting with https:// or http://.</i>",
+            chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")
+            ]]),
+        )
+        return
+
+    if action.startswith("start_button_url_"):
+        index = action.rsplit("_", 1)[1]
+        url = (message.text or "").strip()
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            await message.answer("Invalid URL. Send a complete http:// or https:// link.")
+            return
+        prior = await ui_state.find_one({"_id": f"prompt:{message.from_user.id}"})
+        # The text is stored temporarily in the prompt document between the two steps.
+        label = (prior or {}).get("button_text", "")
+        if not label:
+            await message.answer("Button text was not found. Start the button setup again.")
+            return
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
+            f"button{index}_text": label, f"button{index}_url": url,
+        }}, upsert=True)
+
+    elif action == "start_caption":
         value = message.text or message.caption
         if value is None:
             await message.answer("Please send text for the Start caption.")
@@ -1137,9 +1224,10 @@ async def owner_input(message: Message):
         start_cfg = await get_start_config()
         limit = 1024 if start_cfg.get("media_file_id") else 4096
         if telegram_text_length(value) > limit:
-            await message.answer(f"Start caption is too long. Current Telegram limit is {limit} characters.")
+            await message.answer(f"Start caption is too long. Telegram allows {limit} characters here.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
+
     elif action == "start_media":
         if message.photo:
             media_type, file_id = "photo", message.photo[-1].file_id
@@ -1149,32 +1237,13 @@ async def owner_input(message: Message):
             await message.answer("Please send a photo or GIF.")
             return
         start_cfg = await get_start_config()
-        start_text = start_cfg.get("text") or ""
-        if telegram_text_length(start_text) > 1024:
-            await message.answer(
-                "Media was not changed. Telegram allows only 1024 characters in a media caption. "
-                "Shorten the Start caption to 1024 characters or fewer, then try again."
-            )
+        if telegram_text_length(start_cfg.get("text") or "") > 1024:
+            await message.answer("Media not changed: shorten the Start caption to 1024 characters or fewer first.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
             "media_type": media_type, "media_file_id": file_id,
         }}, upsert=True)
-    elif action.startswith("start_button_"):
-        index = action.rsplit("_", 1)[1]
-        if message.text and message.text.strip().lower() in {"remove", "none"}:
-            label, url = "", ""
-        elif message.text and "|" in message.text:
-            label, url = [part.strip() for part in message.text.split("|", 1)]
-            parsed = urlparse(url)
-            if not label or len(label) > 64 or parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                await message.answer("Invalid format. Send: Button Name | https://example.com")
-                return
-        else:
-            await message.answer("Send: Button Name | https://example.com (or REMOVE to remove).")
-            return
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
-            f"button{index}_text": label, f"button{index}_url": url,
-        }}, upsert=True)
+
     elif action == "caption":
         text_value = message.text or message.caption
         if not text_value:
@@ -1183,52 +1252,37 @@ async def owner_input(message: Message):
         cfg_now = await get_config()
         caption_limit = 1024 if cfg_now.get("media_file_id") else 4096
         if telegram_text_length(text_value) > caption_limit:
-            await message.answer(
-                f"Caption is too long. Telegram allows up to {caption_limit} characters "
-                "for the current post format."
-            )
+            await message.answer(f"Caption is too long. Telegram allows up to {caption_limit} characters.")
             return
         entities = message.entities if message.text else message.caption_entities
-        await settings.update_one(            {"_id": "post"},
-            {"$set": {                "caption": text_value,
-                "caption_entities": [e.model_dump(mode="json", exclude_none=True) for e in (entities or [])],
-            }},
-            upsert=True,
-        )
+        await settings.update_one({"_id": "post"}, {"$set": {
+            "caption": text_value,
+            "caption_entities": [e.model_dump(mode="json", exclude_none=True) for e in (entities or [])],
+        }}, upsert=True)
         invalidate_config_cache()
+
     elif action == "button":
-        if not message.text:
-            await message.answer("Please send the new button text as a text message.")
+        if not message.text or len(message.text) > 64:
+            await message.answer("Please send button text between 1 and 64 characters.")
             return
-        if len(message.text) > 64:
-            await message.answer("Telegram inline button text must be 1–64 characters. Send a shorter label.")
-            return
-        await settings.update_one(
-            {"_id": "post"}, {"$set": {"button": message.text}}, upsert=True
-        )
+        await settings.update_one({"_id": "post"}, {"$set": {"button": message.text}}, upsert=True)
         invalidate_config_cache()
+
     elif action == "media":
-        media_type, file_id = None, None
         if message.photo:
             media_type, file_id = "photo", message.photo[-1].file_id
         elif message.animation:
             media_type, file_id = "animation", message.animation.file_id
-        if not file_id:
+        else:
             await message.answer("Please send only a picture or GIF.")
             return
         current_config = await get_config()
-        current_caption = current_config.get("caption", DEFAULT_CAPTION)
-        if telegram_text_length(current_caption) > 1024:
-            await message.answer(
-                "Media was not changed. The current caption exceeds Telegram's 1024-character media-caption limit. "
-                "Shorten the caption first, then add the photo/GIF again."
-            )
+        if telegram_text_length(current_config.get("caption", DEFAULT_CAPTION)) > 1024:
+            await message.answer("Media not changed: shorten the post caption to 1024 characters or fewer first.")
             return
-        await settings.update_one(
-            {"_id": "post"},
-            {"$set": {"media_type": media_type, "media_file_id": file_id}},
-            upsert=True,
-        )
+        await settings.update_one({"_id": "post"}, {"$set": {
+            "media_type": media_type, "media_file_id": file_id,
+        }}, upsert=True)
         invalidate_config_cache()
     else:
         await ui_state.delete_one({"_id": f"prompt:{message.from_user.id}"})
@@ -1240,23 +1294,22 @@ async def owner_input(message: Message):
     except TelegramAPIError:
         pass
     try:
+        config = await get_start_config()
         if action.startswith("start_"):
             await BOT.edit_message_text(
-                start_settings_body(await get_start_config()),
-                chat_id=pending["panel_chat_id"],
-                message_id=pending["panel_message_id"],
-                reply_markup=start_settings_keyboard(),
+                start_settings_body(config),
+                chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
+                reply_markup=start_settings_keyboard(config),
             )
         else:
             await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\n\n"
-                "<i>Edit caption, media, and button using the buttons below:</i>",
-                chat_id=pending["panel_chat_id"],
-                message_id=pending["panel_message_id"],
+                "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the buttons below:</i>",
+                chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
                 reply_markup=settings_keyboard(),
             )
     except TelegramAPIError:
         log.exception("Could not restore settings panel")
+
 
 
 async def update_chat_title_from_service(message: Message):
