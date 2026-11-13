@@ -132,6 +132,15 @@ DEFAULT_START_TEXT = (
 )
 
 
+async def cleanup_empty_start_config():
+    absent = {key: {"$exists": False} for key in (
+        "text", "media_type", "media_file_id",
+        "button1_text", "button1_url", "button2_text", "button2_url",
+        "button3_text", "button3_url", "button4_text", "button4_url",
+    )}
+    await settings.delete_one({"_id": START_CONFIG_ID, **absent})
+
+
 async def get_start_config():
     # Defaults stay in source; MongoDB stores only manually configured overrides.
     config = await settings.find_one({"_id": START_CONFIG_ID})
@@ -199,18 +208,18 @@ async def send_start_page(message: Message):
     try:
         if media_id and media_type == "photo":
             if telegram_html_length(body) <= 1024:
-                await message.answer_photo(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await message.answer_photo(media_id, caption=body, reply_markup=markup)
             else:
                 await message.answer_photo(media_id, reply_markup=markup)
                 await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
         elif media_id and media_type == "animation":
             if telegram_html_length(body) <= 1024:
-                await message.answer_animation(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await message.answer_animation(media_id, caption=body, reply_markup=markup)
             else:
                 await message.answer_animation(media_id, reply_markup=markup)
                 await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
-            await message.answer(body, reply_markup=markup)
+            await message.answer(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
     except TelegramAPIError:
         log.exception("Could not send configured Start page; using text fallback")
         await message.answer(body, reply_markup=markup)
@@ -833,6 +842,7 @@ async def start_settings_callback(call: CallbackQuery):
         return
     if action == "caption_default":
         await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"text": ""}})
+        await cleanup_empty_start_config()
         config = await get_start_config()
         await call.answer("Default caption restored")
         await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
@@ -847,6 +857,7 @@ async def start_settings_callback(call: CallbackQuery):
         return
     if action == "media_remove":
         await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"media_type": "", "media_file_id": ""}})
+        await cleanup_empty_start_config()
         config = await get_start_config()
         await call.answer("Media removed")
         await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
