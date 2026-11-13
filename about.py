@@ -18,16 +18,6 @@ DEFAULT_ABOUT_TEXT = (
     "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\n"
     "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b></i>"
 )
-def render_default_about(bot_info):
-    bot_name = html.escape(bot_info.full_name)
-    if bot_info.username:
-        username = html.escape(bot_info.username, quote=True)
-        bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>'
-    else:
-        bot_mention = bot_name
-    anime = '<a href="http://t.me/lexianime">Lexi Anime</a>'
-    return DEFAULT_ABOUT_TEXT.format(bot_name=bot_name, bot_mention=bot_mention, anime=anime)
-
 def render_about(bot_info):
     bot_name = html.escape(bot_info.full_name)
     if bot_info.username:
