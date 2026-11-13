@@ -236,34 +236,24 @@ def small_caps_label(value: str) -> str:
 
 
 def start_settings_keyboard(config):
-    caption_on = bool((config.get("text") or "").strip())
-    media_on = bool(config.get("media_file_id"))
-    states = [bool((config.get(f"button{i}_text") or "").strip() and (config.get(f"button{i}_url") or "").strip()) for i in range(1, 5)]
-    mark = lambda enabled: "✅" if enabled else "❌"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Caption"), callback_data="startcfg:caption"),
          InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media")],
-        [InlineKeyboardButton(text=f"{mark(states[0])} {small_caps_label('Button 1')}", callback_data="startcfg:button1"),
-         InlineKeyboardButton(text=f"{mark(states[1])} {small_caps_label('Button 2')}", callback_data="startcfg:button2")],
-        [InlineKeyboardButton(text=f"{mark(states[2])} {small_caps_label('Button 3')}", callback_data="startcfg:button3"),
-         InlineKeyboardButton(text=f"{mark(states[3])} {small_caps_label('Button 4')}", callback_data="startcfg:button4")],
+        [InlineKeyboardButton(text=small_caps_label("Buttons"), callback_data="startcfg:buttons"),
+         InlineKeyboardButton(text=f"{small_caps_label('About')} {'ON ✅' if config.get('about_enabled', True) else 'OFF ❌'}", callback_data="startcfg:about_toggle")],
     ])
 
 
 def start_settings_body(config):
     caption_on = bool((config.get("text") or "").strip())
     media_on = bool(config.get("media_file_id"))
-    statuses = [
-        f"<i>Caption: {'✅ Enabled' if caption_on else '❌ Default'}</i>",
-        f"<i>Media: {'✅ Added' if media_on else '❌ Not added'}</i>",
-    ]
-    for i in range(1, 5):
-        enabled = bool((config.get(f"button{i}_text") or "").strip() and (config.get(f"button{i}_url") or "").strip())
-        statuses.append(f"<i>Button {i}: {'✅ Enabled' if enabled else '❌ Disabled'}</i>")
+    about_on = config.get("about_enabled", True)
     return (
-        "<b><i>✦ sᴛᴀʀᴛ ᴘᴀɢᴇ sᴇᴛᴛɪɴɢs</i></b>\n\n"
-        "<i>Manage the caption, media and four fixed-position buttons shown on /start.</i>\n\n"
-        + "\n".join(statuses)
+        "<b><u>START MESSAGE</u></b>\\n\\n"
+        "<i>Customize your bot's start message using the following options.</i>\\n\\n"
+        f"<i>Caption: {'Added ✅' if caption_on else 'Default ✨'}</i>\\n"
+        f"<i>Media: {'Added ✅' if media_on else 'None ❌'}</i>\\n"
+        f"<i>About: {'Enabled ✅' if about_on else 'Disabled ❌'}</i>"
     )
 
 
