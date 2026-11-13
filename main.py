@@ -775,13 +775,13 @@ async def run_broadcast(source_message: Message, chat_id: int, pin: bool):
         await asyncio.sleep(0.04)
 
     result = (
-        "<b>✨ Broadcast completed.</b>\\n\\n"
-        f"<b>Users:</b> {len(recipient_ids)}\\n"
-        f"<b>Delivered:</b> {delivered}\\n"
+        "<b>✨ Broadcast completed.</b>\n\n"
+        f"<b>Users:</b> {len(recipient_ids)}\n"
+        f"<b>Delivered:</b> {delivered}\n"
         f"<b>Failed:</b> {failed}"
     )
     if pin:
-        result += f"\\n<b>Pinned:</b> {pinned}\\n<b>Pin failed:</b> {pin_failed}"
+        result += f"\n<b>Pinned:</b> {pinned}\n<b>Pin failed:</b> {pin_failed}"
     await BOT.send_message(chat_id, result)
 
 
