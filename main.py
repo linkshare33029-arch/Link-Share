@@ -190,7 +190,7 @@ def start_config_keyboard(config):
             url = (config.get(f"button{index}_url") or "").strip()
             parsed = urlparse(url)
             if label and parsed.scheme in {"http", "https"} and parsed.netloc:
-                row.append(InlineKeyboardButton(text=small_caps_label(label[:64]), url=url))
+                row.append(InlineKeyboardButton(text=label[:64], url=url))
         if row:
             rows.append(row)
     # About is displayed only while enabled in owner settings.
@@ -902,7 +902,11 @@ async def start_settings_callback(call: CallbackQuery):
 
     if action == "about_toggle":
         enabled = not config.get("about_enabled", True)
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_enabled": enabled}}, upsert=True)
+        if enabled:
+            await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"about_enabled": ""}})
+            await cleanup_empty_start_config()
+        else:
+            await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_enabled": False}}, upsert=True)
         config = await get_start_config()
         await call.answer("About enabled" if enabled else "About disabled")
         await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
