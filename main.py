@@ -1554,7 +1554,7 @@ async def owner_input(message: Message):
                 markup = start_submenu_keyboard("media", config)
             elif action.startswith("start_button_url_"):
                 index = action.rsplit("_", 1)[1]
-                success = f"<i>✨ Start Message Button {index} added successfully.</i>\\n\\n" + start_buttons_body(config)
+                success = f"<i>✨ Start Message Button {index} added successfully.</i>\n\n" + start_buttons_body(config)
                 markup = start_buttons_keyboard(config)
             else:
                 success = start_settings_body(config)
