@@ -321,11 +321,18 @@ def small_caps(value: str) -> str:
     ))
 
 
-def main_keyboard(items):
+HOME_PAGE_SIZE = 20
+
+
+def main_keyboard(items, page=0):
+    total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
+    page = max(0, min(int(page), total_pages - 1))
+    start = page * HOME_PAGE_SIZE
+    visible = items[start:start + HOME_PAGE_SIZE]
     rows, row = [], []
-    for item in items:
+    for item in visible:
         row.append(InlineKeyboardButton(
-            text=item["title"][:64],
+            text=small_caps_label(item["title"][:64]),
             callback_data=f"chat:{item['code']}",
         ))
         if len(row) == 2:
@@ -333,8 +340,19 @@ def main_keyboard(items):
             row = []
     if row:
         rows.append(row)
+    if total_pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(
+                text=small_caps_label("Previous"), callback_data=f"home:page:{page - 1}"
+            ))
+        if page < total_pages - 1:
+            nav.append(InlineKeyboardButton(
+                text=small_caps_label("Next"), callback_data=f"home:page:{page + 1}"
+            ))
+        rows.append(nav)
     rows.append([InlineKeyboardButton(text="+", callback_data="add")])
-    rows.append([InlineKeyboardButton(text="ʟɪɴᴋs ᴘᴏsᴛ", callback_data="settings")])
+    rows.append([InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="settings")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -448,8 +466,8 @@ async def sync_chat_titles():
 
 async def refresh_home_panels():
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
-    markup = main_keyboard(items)
     async for panel in ui_state.find({"_id": {"$regex": "^home:"}}):
+        markup = main_keyboard(items, panel.get("page", 0))
         try:
             chat_id = int(panel["_id"].split(":", 1)[1])
             await BOT.edit_message_text(
@@ -465,8 +483,10 @@ async def refresh_home_panels():
 
 async def render_home(message: Message, edit_existing=False):
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
-    body, markup = await home_text(), main_keyboard(items)
+    body = await home_text()
     panel = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
+    page = (panel or {}).get("page", 0)
+    markup = main_keyboard(items, page)
     target_id = message.message_id if edit_existing else (panel or {}).get("message_id")
     if target_id:
         try:
@@ -883,6 +903,29 @@ async def back_from_start_about(call: CallbackQuery):
         log.exception("Could not restore the Start page after About")
 
 
+@dp.callback_query(F.data.startswith("home:page:"))
+async def home_page_navigation(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    try:
+        page = max(0, int(call.data.rsplit(":", 1)[1]))
+    except (ValueError, IndexError):
+        await call.answer("Invalid page", show_alert=True)
+        return
+    await clear_owner_prompt(call.from_user.id)
+    items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
+    total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
+    page = min(page, total_pages - 1)
+    await call.answer()
+    await edit_panel(call.message, await home_text(), main_keyboard(items, page))
+    await ui_state.update_one(
+        {"_id": f"home:{call.message.chat.id}"},
+        {"$set": {"message_id": call.message.message_id, "page": page}},
+        upsert=True,
+    )
+
+
 @dp.callback_query(F.data == "home")
 async def go_home(call: CallbackQuery):
     if not is_owner(call.from_user.id):
@@ -993,7 +1036,10 @@ async def restore_picker_panel(state, notice=None):
             await home_text(),
             chat_id=state["panel_chat_id"],
             message_id=state["panel_message_id"],
-            reply_markup=main_keyboard(await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)),
+            reply_markup=main_keyboard(
+                await chats.find({"active": True}).sort("created_at", 1).to_list(length=None),
+                state.get("home_page", 0),
+            ),
         )
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
