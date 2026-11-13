@@ -1,16 +1,15 @@
 import html
 
 DEFAULT_ABOUT_TEXT = (
-    "<i>✨ ᴀʙᴏᴜᴛ ᴍᴇ</i>\\n\\n"
-    "<i>{bot_mention} helps users discover and join the communities shared through this bot. "
-    "Choose an available option on the Start page to receive a fresh invitation. "
-    "Open the invitation in Telegram and follow the on-screen steps to join. "
-    "Private communities may require an additional join-request approval. "
-    "If an invitation expires, return to the original link and request a new one.</i>\\n\\n"
+    "<b><i>✨ ᴀʙᴏᴜᴛ ᴍᴇ</i></b>\\n\\n"
+    "<i>{bot_mention} makes it easy to discover and join the communities shared here. "
+    "Choose an option on the Start page to receive an invitation, then open it in Telegram "
+    "and follow the on-screen steps. Private communities may require a join request for approval. "
+    "If an invitation expires, return to the original link to request a fresh one.</i>\\n\\n"
     "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\\n"
     "<b>➤ ɴᴀᴍᴇ : {bot_mention}</b>\\n"
     "<b>➤ ᴄʀᴇᴀᴛᴏʀ : ʏᴜᴛᴀ</b>\\n"
-    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂𝓸ᴋᴏ</b>\\n"
+    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂ᴏᴋᴏ</b>\\n"
     "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\\n"
     "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b>"
 )
