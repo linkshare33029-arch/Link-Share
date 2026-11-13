@@ -803,6 +803,7 @@ async def begin_broadcast(message: Message, pin: bool):
         return
     owner_id, chat_id = message.from_user.id, message.chat.id
     await cancel_broadcast(owner_id, chat_id)
+    old_panel_ids = await clear_owner_panels(chat_id, owner_id)
     if message.reply_to_message:
         await run_broadcast(message.reply_to_message, chat_id, pin)
     else:
@@ -813,10 +814,7 @@ async def begin_broadcast(message: Message, pin: bool):
             upsert=True,
         )
         broadcast_tasks[owner_id] = asyncio.create_task(broadcast_timeout(owner_id, chat_id))
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
+    await finish_owner_command(message, old_panel_ids)
 
 
 @dp.message(Command("broadcast"))
