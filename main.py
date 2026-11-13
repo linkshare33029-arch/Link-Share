@@ -949,16 +949,18 @@ async def start_settings_callback(call: CallbackQuery):
 
     if action == "cancel":
         pending = await ui_state.find_one({"_id": f"prompt:{call.from_user.id}"})
-        await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+        await clear_owner_prompt(call.from_user.id)
         await call.answer("Cancelled")
         if pending and str(pending.get("action", "")).startswith("start_button_"):
-            await edit_panel(call.message, start_buttons_body(config), start_buttons_keyboard(config))
+            body, markup = start_buttons_body(config), start_buttons_keyboard(config)
         elif pending and pending.get("action") == "start_caption":
-            await edit_panel(call.message, "<b><u>CAPTION</u></b>\n\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
+            body, markup = "<b><u>CAPTION</u></b>\n\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config)
         elif pending and pending.get("action") == "start_media":
-            await edit_panel(call.message, "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
+            body, markup = "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config)
         else:
-            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+            body, markup = start_settings_body(config), start_settings_keyboard(config)
+        if pending:
+            await BOT.edit_message_text(body, chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"], reply_markup=markup)
         return
 
     if action in {"home", "close"}:
@@ -1053,14 +1055,15 @@ async def start_settings_callback(call: CallbackQuery):
         await call.answer("Unknown setting", show_alert=True)
         return
 
-    await ui_state.update_one({"_id": f"prompt:{call.from_user.id}"}, {"$set": {
-        "action": prompt_action, "panel_chat_id": call.message.chat.id,
-        "panel_message_id": call.message.message_id, "updated_at": datetime.now(timezone.utc),
-    }}, upsert=True)
-    await call.answer()
-    await edit_panel(call.message, f"<i>{prompt_text}</i>", InlineKeyboardMarkup(inline_keyboard=[
+    prompt = await call.message.answer(f"<i>{prompt_text}</i>", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
+    await ui_state.update_one({"_id": f"prompt:{call.from_user.id}"}, {"$set": {
+        "action": prompt_action, "panel_chat_id": call.message.chat.id,
+        "panel_message_id": call.message.message_id, "prompt_message_id": prompt.message_id,
+        "updated_at": datetime.now(timezone.utc),
+    }}, upsert=True)
+    await call.answer()
 
 
 @dp.callback_query(F.data == "start:about")
