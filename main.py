@@ -952,6 +952,8 @@ async def start_settings_callback(call: CallbackQuery):
         return
     action = call.data.split(":", 1)[1]
     config = await get_start_config()
+    if action != "cancel":
+        await clear_owner_prompt(call.from_user.id)
 
     if action == "cancel":
         pending = await ui_state.find_one({"_id": f"prompt:{call.from_user.id}"})
@@ -1430,6 +1432,7 @@ async def cfg_prompt(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     action = call.data.split(":", 1)[1]
+    await clear_owner_prompt(call.from_user.id)
     prompts = {
         "media": "<i>Send new media for the links post. Only GIF and picture are supported.</i>",
         "caption": "<i>Send new caption for the Link Post.</i>",
