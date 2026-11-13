@@ -713,6 +713,12 @@ async def start_settings_callback(call: CallbackQuery):
     action = call.data.split(":", 1)[1]
     config = await get_start_config()
 
+    if action == "cancel":
+        await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+        await call.answer("Cancelled")
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        return
+
     if action in {"home", "close"}:
         await call.answer()
         if action == "close":
@@ -795,17 +801,6 @@ async def start_settings_callback(call: CallbackQuery):
     await edit_panel(call.message, f"<i>{html.escape(prompt_text)}</i>", InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
-
-
-@dp.callback_query(F.data == "startcfg:cancel")
-async def cancel_start_settings_prompt(call: CallbackQuery):
-    if not is_owner(call.from_user.id):
-        await call.answer("Not allowed", show_alert=True)
-        return
-    await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
-    config = await get_start_config()
-    await call.answer("Cancelled")
-    await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
 
 
 @dp.callback_query(F.data == "start:about")
