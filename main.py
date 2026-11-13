@@ -931,6 +931,7 @@ async def go_home(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Not allowed", show_alert=True)
         return
+    await clear_owner_prompt(call.from_user.id)
     await call.answer()
     await render_home(call.message, edit_existing=True)
 
@@ -971,11 +972,13 @@ async def add_menu(call: CallbackQuery):
             one_time_keyboard=True,
         ),
     )
+    home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"}) or {}
     await ui_state.update_one(
         {"_id": f"picker:{call.from_user.id}"},
         {"$set": {"prompt_message_id": prompt.message_id,
                   "panel_chat_id": call.message.chat.id,
-                  "panel_message_id": call.message.message_id}},
+                  "panel_message_id": call.message.message_id,
+                  "home_page": home_state.get("page", 0)}},
         upsert=True,
     )
 
@@ -1013,6 +1016,7 @@ async def replace_chat_menu(call: CallbackQuery):
             one_time_keyboard=True,
         ),
     )
+    home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"}) or {}
     await ui_state.update_one(
         {"_id": f"picker:{call.from_user.id}"},
         {"$set": {
@@ -1021,6 +1025,7 @@ async def replace_chat_menu(call: CallbackQuery):
             "prompt_message_id": prompt.message_id,
             "panel_chat_id": call.message.chat.id,
             "panel_message_id": call.message.message_id,
+            "home_page": home_state.get("page", 0),
         }},
         upsert=True,
     )
