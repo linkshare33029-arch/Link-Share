@@ -222,7 +222,10 @@ async def send_start_page(message: Message):
             await message.answer(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
     except TelegramAPIError:
         log.exception("Could not send configured Start page; using text fallback")
-        await message.answer(body, reply_markup=markup)
+        await message.answer(
+            body, reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
 
 def small_caps_label(value: str) -> str:
     lower = "abcdefghijklmnopqrstuvwxyz"
@@ -791,21 +794,15 @@ def commands_page(page: int = 0):
 async def commands_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await clear_owner_prompt(message.from_user.id)
-    key = f"commands:{message.chat.id}"
-    previous = await ui_state.find_one({"_id": key})
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     body, markup, page = commands_page(0)
     sent = await message.answer(body, reply_markup=markup)
-    await ui_state.update_one({"_id": key}, {"$set": {"message_id": sent.message_id, "page": page}}, upsert=True)
-    if previous and previous.get("message_id") and previous["message_id"] != sent.message_id:
-        try:
-            await BOT.delete_message(message.chat.id, previous["message_id"])
-        except TelegramAPIError:
-            pass
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
+    await ui_state.update_one(
+        {"_id": f"commands:{message.chat.id}"},
+        {"$set": {"message_id": sent.message_id, "page": page}},
+        upsert=True,
+    )
+    await finish_owner_command(message, old_panel_ids, sent.message_id)
 
 
 @dp.callback_query(F.data.startswith("commands:page:"))
@@ -818,6 +815,7 @@ async def commands_page_navigation(call: CallbackQuery):
     except (ValueError, IndexError):
         await call.answer("Invalid page", show_alert=True)
         return
+    await clear_owner_prompt(call.from_user.id)
     body, markup, page = commands_page(page)
     await call.answer()
     await edit_panel(call.message, body, markup)
