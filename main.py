@@ -1411,7 +1411,7 @@ async def cfg_default(call: CallbackQuery):
         return
     await settings.delete_one({"_id": "post"})
     invalidate_config_cache()
-    await call.answer("✅ Successfully reset all to defaults")
+    await call.answer("✨ ✅ Successfully reset all to defaults")
     await show_settings(call.message)
 
 
