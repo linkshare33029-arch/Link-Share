@@ -1536,13 +1536,20 @@ async def owner_input(message: Message):
             await message.delete()
         except TelegramAPIError:
             pass
-        await BOT.edit_message_text(
-            f"<i>Now send the URL for Start Message Button {index}.</i>",
-            chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
+        if pending.get("prompt_message_id"):
+            try:
+                await BOT.delete_message(pending["panel_chat_id"], pending["prompt_message_id"])
+            except TelegramAPIError:
+                pass
+        next_prompt = await BOT.send_message(
+            pending["panel_chat_id"], f"<i>Now send the URL for Start Message Button {index}.</i>",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")
             ]]),
         )
+        await ui_state.update_one({"_id": f"prompt:{message.from_user.id}"}, {"$set": {
+            "prompt_message_id": next_prompt.message_id,
+        }})
         return
 
     if action.startswith("start_button_url_"):
