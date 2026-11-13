@@ -202,7 +202,7 @@ async def send_start_page(message: Message):
     if not config.get("enabled", True):
         await message.answer("This page is currently unavailable.")
         return
-    body = render_start_text(config, await BOT.get_me(), message.from_user)
+    body = render_start_text(config, await get_bot_info(), message.from_user)
     markup = start_config_keyboard(config)
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
@@ -342,6 +342,13 @@ class ActiveBotProxy:
 
 
 default_bot = None
+bot_info_cache = None
+
+
+async def get_bot_info():
+    return bot_info_cache or await BOT.get_me()
+
+
 current_bot = contextvars.ContextVar("current_bot", default=None)
 current_bot_username = contextvars.ContextVar("current_bot_username", default="")
 current_bot_user_id = contextvars.ContextVar("current_bot_user_id", default=0)
@@ -909,7 +916,7 @@ async def start_settings_callback(call: CallbackQuery):
 @dp.callback_query(F.data == "start:about")
 async def show_start_about(call: CallbackQuery):
     # About is code-defined and always replaces the current Start message.
-    body = render_about(await BOT.get_me())
+    body = render_about(await get_bot_info())
     markup = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="start:back")]
     ])
@@ -935,7 +942,7 @@ async def show_start_about(call: CallbackQuery):
 async def back_from_start_about(call: CallbackQuery):
     # Restore the original Start caption/text and its configured URL buttons.
     config = await read_start_config()
-    body = render_start_text(config, await BOT.get_me(), call.from_user)
+    body = render_start_text(config, await get_bot_info(), call.from_user)
     markup = start_config_keyboard(config)
     try:
         if call.message.photo or call.message.animation or call.message.document:
@@ -1407,7 +1414,7 @@ async def owner_input(message: Message):
             await reject_input("Please send a photo or GIF.")
             return
         start_cfg = await get_start_config()
-        if telegram_html_length(start_cfg.get("text") or render_start_text(start_cfg, await BOT.get_me(), message.from_user)) > 1024:
+        if telegram_html_length(start_cfg.get("text") or render_start_text(start_cfg, await get_bot_info(), message.from_user)) > 1024:
             await reject_input("Media not changed: shorten the Start caption to 1024 characters first.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
@@ -1678,11 +1685,12 @@ async def health(request):
 
 
 async def main():
-    global default_bot, default_db
+    global default_bot, default_db, bot_info_cache
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     runner = None
     try:
         me = await bot.get_me()
+        bot_info_cache = me
         # Request only the admin capability required by Link Share: creating invite links.
         invite_admin_rights = ChatAdministratorRights(
             is_anonymous=False,
