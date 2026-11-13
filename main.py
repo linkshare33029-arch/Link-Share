@@ -441,15 +441,8 @@ async def get_config():
     config = await settings.find_one({"_id": "post"})
     old_default_caption = "<blockquote><b><i>» Hᴇʀᴇ ɪs ʏᴏᴜʀ ʟɪɴᴋ!</i></b></blockquote><b>» ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ᴘʀᴏᴄᴇᴇᴅ:</b>"
     if config and config.get("caption") == old_default_caption:
-        await settings.update_one(
-            {"_id": "post"},
-            {"$set": {"caption": DEFAULT_CAPTION, "caption_entities": []}},
-        )
-        config["caption"] = DEFAULT_CAPTION
-        config["caption_entities"] = []
-    if config is None:
-        await settings.update_one({"_id": "post"}, {"$setOnInsert": defaults}, upsert=True)
-        config = await settings.find_one({"_id": "post"})
+        config = {**config, "caption": DEFAULT_CAPTION, "caption_entities": []}
+    # An untouched default is served from code and is never persisted.
     POST_CONFIG_CACHE[cache_key] = config or defaults
     return POST_CONFIG_CACHE[cache_key]
 
@@ -1259,17 +1252,7 @@ async def cfg_default(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Not allowed", show_alert=True)
         return
-    await settings.update_one(
-        {"_id": "post"},
-        {"$set": {
-            "caption": DEFAULT_CAPTION,
-            "caption_entities": [],
-            "button": DEFAULT_BUTTON,
-            "media_type": None,
-            "media_file_id": None,
-        }},
-        upsert=True,
-    )
+    await settings.delete_one({"_id": "post"})
     invalidate_config_cache()
     await call.answer("✅ Successfully reset all to defaults")
     await show_settings(call.message)
