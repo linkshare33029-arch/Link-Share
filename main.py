@@ -279,11 +279,24 @@ def start_submenu_keyboard(kind, config):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def start_button_submenu_keyboard(index):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=small_caps_label("Disable"), callback_data=f"startcfg:button{index}")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:home")],
-    ])
+def start_buttons_body(config):
+    lines = ["<b><u>START BUTTONS</u></b>", "", "<i>Customize buttons shown with your start message.</i>", ""]
+    for index in range(1, 5):
+        enabled = bool((config.get(f"button{index}_text") or "").strip() and (config.get(f"button{index}_url") or "").strip())
+        lines.append(f"<i>Button {index}: {'ON ✅' if enabled else 'OFF ❌'}</i>")
+    return "\\n".join(lines)
+
+
+def start_buttons_keyboard(config):
+    rows = []
+    for first, second in ((1, 2), (3, 4)):
+        row = []
+        for index in (first, second):
+            enabled = bool((config.get(f"button{index}_text") or "").strip() and (config.get(f"button{index}_url") or "").strip())
+            row.append(InlineKeyboardButton(text=f"{index} {'ON ✅' if enabled else 'OFF ❌'}", callback_data=f"startcfg:button{index}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="startcfg:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def show_start_settings(message: Message):
@@ -874,14 +887,23 @@ async def start_settings_callback(call: CallbackQuery):
         return
 
     if action in {"home", "close"}:
+        await clear_owner_prompt(call.from_user.id)
         await call.answer()
-        if action == "close":
-            try:
-                await call.message.delete()
-            except TelegramAPIError:
-                pass
-        else:
-            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        return
+
+    if action == "about_toggle":
+        enabled = not config.get("about_enabled", True)
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_enabled": enabled}}, upsert=True)
+        config = await get_start_config()
+        await call.answer("About enabled" if enabled else "About disabled")
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        return
+
+    if action == "buttons":
+        await clear_owner_prompt(call.from_user.id)
+        await call.answer()
+        await edit_panel(call.message, start_buttons_body(config), start_buttons_keyboard(config))
         return
 
     if action == "caption":
