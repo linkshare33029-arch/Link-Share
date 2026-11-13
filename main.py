@@ -705,19 +705,27 @@ async def send_fresh_link(message: Message, chat_doc):
 async def start(message: Message):
     if not message.from_user:
         return
-    if is_owner(message.from_user.id):
+    owner = is_owner(message.from_user.id)
+    old_panel_ids = []
+    if owner:
         await cancel_broadcast(message.from_user.id, message.chat.id)
+        old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
     if code:
         doc = await chats.find_one({"code": code, "active": True})
         if not doc:
-            await message.answer("This link is invalid or no longer available.")
+            await message.answer("<i>This link is invalid or no longer available.</i>")
+            if owner:
+                await finish_owner_command(message, old_panel_ids)
             return
         await send_fresh_link(message, doc)
+        if owner:
+            await finish_owner_command(message, old_panel_ids)
         return
     await send_start_page(message)
-
+    if owner:
+        await finish_owner_command(message, old_panel_ids)
 
 async def cancel_broadcast(owner_id: int, chat_id: int | None = None):
     """Cancel one owner's pending broadcast and remove its prompt."""
