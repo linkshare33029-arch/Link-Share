@@ -955,12 +955,12 @@ async def start_settings_callback(call: CallbackQuery):
     prompt_text = None
     if action == "caption_edit":
         prompt_action, prompt_text = "start_caption", (
-            "Send The New Caption text.\\n\\n"
-            "Available variables (tap any item to copy):\\n"
-            "<code>{bot_name}</code> — Bot display name\\n"
-            "<code>{bot_mention}</code> — Linked bot name\\n"
-            "<code>{user_name}</code> — User display name\\n"
-            "<code>{mention}</code> — Linked user name\\n"
+            "Send The New Caption text.\n\n"
+            "Available variables (tap any item to copy):\n"
+            "<code>{bot_name}</code> — Bot display name\n"
+            "<code>{bot_mention}</code> — Linked bot name\n"
+            "<code>{user_name}</code> — User display name\n"
+            "<code>{mention}</code> — Linked user name\n"
             "<code>{anime}</code> — Lexi Anime link"
         )
     elif action == "media_edit":
@@ -1554,7 +1554,7 @@ async def owner_input(message: Message):
                 markup = start_submenu_keyboard("media", config)
             elif action.startswith("start_button_url_"):
                 index = action.rsplit("_", 1)[1]
-                success = f"<i>✨ Start Message Button {index} added successfully.</i>"
+                success = f"<i>✨ Start Message Button {index} added successfully.</i>\\n\\n" + start_buttons_body(config)
                 markup = start_buttons_keyboard(config)
             else:
                 success = start_settings_body(config)
