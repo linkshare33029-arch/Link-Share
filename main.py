@@ -126,17 +126,28 @@ async def read_start_config():
     return config or DEFAULT_START_CONFIG.copy()
 
 
+DEFAULT_START_TEXT = (
+    "<i>✨ Welcome to <b>{bot_mention}</b>!\\n\\n"
+    "Choose an option below to explore the available communities and get a fresh invite link.</i>"
+)
+
+
 async def get_start_config():
+    # Defaults stay in source; MongoDB stores only manually configured overrides.
     config = await settings.find_one({"_id": START_CONFIG_ID})
-    if config is None:
-        defaults = {key: value for key, value in DEFAULT_START_CONFIG.items() if key != "_id"}
-        await settings.update_one(
-            {"_id": START_CONFIG_ID},
-            {"$setOnInsert": defaults},
-            upsert=True,
-        )
-        config = await settings.find_one({"_id": START_CONFIG_ID})
-    return config or DEFAULT_START_CONFIG.copy()
+    return {**DEFAULT_START_CONFIG, **(config or {})}
+
+
+def render_start_text(config, bot_info=None):
+    value = (config.get("text") or "").strip()
+    if value:
+        return value
+    if bot_info is None:
+        return "<i>✨ Welcome! Choose an option below to continue.</i>"
+    name = html.escape(bot_info.full_name)
+    username = html.escape(bot_info.username, quote=True) if bot_info.username else ""
+    mention = f'<a href="https://t.me/{username}">{name}</a>' if username else name
+    return DEFAULT_START_TEXT.format(bot_mention=mention)
 
 def start_config_keyboard(config):
     # Keep the four configured slots in their fixed two-row positions.
@@ -160,19 +171,19 @@ async def send_start_page(message: Message):
     if not config.get("enabled", True):
         await message.answer("This page is currently unavailable.")
         return
-    body = config.get("text") or "✨ Welcome! Use the buttons below to continue."
+    body = render_start_text(config, await BOT.get_me())
     markup = start_config_keyboard(config)
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
         if media_id and media_type == "photo":
             if telegram_text_length(body) <= 1024:
-                await message.answer_photo(media_id, caption=body, reply_markup=markup)
+                await message.answer_photo(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 await message.answer_photo(media_id, reply_markup=markup)
                 await message.answer(body)
         elif media_id and media_type == "animation":
             if len(body) <= 1024:
-                await message.answer_animation(media_id, caption=body, reply_markup=markup)
+                await message.answer_animation(media_id, caption=body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 await message.answer_animation(media_id, reply_markup=markup)
                 await message.answer(body)
@@ -799,7 +810,7 @@ async def start_settings_callback(call: CallbackQuery):
         await call.answer(value, show_alert=True)
         return
     if action == "caption_default":
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": ""}}, upsert=True)
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"text": ""}})
         config = await get_start_config()
         await call.answer("Default caption restored")
         await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
@@ -813,7 +824,7 @@ async def start_settings_callback(call: CallbackQuery):
         await edit_panel(call.message, body, start_submenu_keyboard("media", config))
         return
     if action == "media_remove":
-        await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"media_type": None, "media_file_id": None}}, upsert=True)
+        await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"media_type": "", "media_file_id": ""}})
         config = await get_start_config()
         await call.answer("Media removed")
         await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
@@ -822,7 +833,12 @@ async def start_settings_callback(call: CallbackQuery):
     prompt_action = None
     prompt_text = None
     if action == "caption_edit":
-        prompt_action, prompt_text = "start_caption", "Send the new /start caption. HTML formatting is supported."
+        prompt_action, prompt_text = "start_caption", (
+            "Send the new /start caption. HTML formatting is supported.\\n\\n"
+            "Available variables (each is individually copyable):\\n"
+            "<code>{bot_name}</code>\\n<code>{bot_mention}</code>\\n"
+            "<code>{user_name}</code>\\n<code>{mention}</code>\\n<code>{anime}</code>"
+        )
     elif action == "media_edit":
         prompt_action, prompt_text = "start_media", "Send one photo or GIF for the /start page."
     elif action.startswith("button") and action[6:].isdigit():
@@ -833,9 +849,9 @@ async def start_settings_callback(call: CallbackQuery):
         label = (config.get(f"button{index}_text") or "").strip()
         url = (config.get(f"button{index}_url") or "").strip()
         if label and url:
-            await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
+            await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {
                 f"button{index}_text": "", f"button{index}_url": "",
-            }}, upsert=True)
+            }})
             config = await get_start_config()
             await call.answer(f"Button {index} disabled")
             await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
@@ -851,7 +867,7 @@ async def start_settings_callback(call: CallbackQuery):
         "panel_message_id": call.message.message_id, "updated_at": datetime.now(timezone.utc),
     }}, upsert=True)
     await call.answer()
-    await edit_panel(call.message, f"<i>{html.escape(prompt_text)}</i>", InlineKeyboardMarkup(inline_keyboard=[
+    await edit_panel(call.message, f"<i>{prompt_text}</i>", InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")]
     ]))
 
@@ -1325,7 +1341,7 @@ async def owner_input(message: Message):
         index = action.rsplit("_", 1)[1]
         url = (message.text or "").strip()
         parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
             await reject_input("Invalid URL.")
             return
         label = (pending or {}).get("button_text", "")
