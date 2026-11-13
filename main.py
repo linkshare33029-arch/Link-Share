@@ -484,6 +484,12 @@ async def clear_owner_panels(chat_id: int, owner_id: int):
             await BOT.delete_message(chat_id, picker["prompt_message_id"])
         except TelegramAPIError:
             pass
+    old_prompt = saved[4]
+    if old_prompt and old_prompt.get("prompt_message_id") and old_prompt.get("panel_chat_id"):
+        try:
+            await BOT.delete_message(old_prompt["panel_chat_id"], old_prompt["prompt_message_id"])
+        except TelegramAPIError:
+            pass
     return old_panel_ids
 
 
@@ -699,6 +705,8 @@ async def send_fresh_link(message: Message, chat_doc):
 async def start(message: Message):
     if not message.from_user:
         return
+    if is_owner(message.from_user.id):
+        await cancel_broadcast(message.from_user.id, message.chat.id)
     parts = (message.text or "").split(maxsplit=1)
     code = parts[1].strip() if len(parts) > 1 else ""
     if code:
@@ -1152,7 +1160,7 @@ async def add_menu(call: CallbackQuery):
 
     await edit_panel(call.message, "<b>ADD CHAT</b>\n\n<i>Tap Channel or Group to open Telegram's chat picker directly.</i>", None)
     prompt = await call.message.answer(
-        "Select a chat:",
+        "<i>Select a chat:</i>",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[
                 KeyboardButton(text=small_caps_label("Channel"), request_chat=KeyboardButtonRequestChat(
@@ -1200,7 +1208,7 @@ async def replace_chat_menu(call: CallbackQuery):
         None,
     )
     prompt = await call.message.answer(
-        "Select the replacement chat:",
+        "<i>Select the replacement chat:</i>",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[
                 KeyboardButton(text=small_caps_label("Channel"), request_chat=KeyboardButtonRequestChat(
@@ -1337,7 +1345,7 @@ async def chat_shared(message: Message):
                     "replaced_at": datetime.now(timezone.utc),
                 }},
             )
-            notice = "✨ Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat."
+            notice = "<i>✨ Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat.</i>"
         else:
             existing = await chats.find_one({"chat_id": shared.chat_id, "active": True})
             if existing:
@@ -1356,7 +1364,7 @@ async def chat_shared(message: Message):
                 "active": True,
                 "created_at": datetime.now(timezone.utc),
             })
-            notice = "✨ Chat added successfully."
+            notice = "<i>✨ Chat added successfully.</i>"
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
         await restore_picker_panel(state, notice)
     except Exception as exc:
