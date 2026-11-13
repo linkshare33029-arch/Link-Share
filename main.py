@@ -864,12 +864,12 @@ async def set_command(message: Message):
 async def setstart_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await clear_owner_prompt(message.from_user.id)
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await show_start_settings(message)
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
+    fresh = await ui_state.find_one({"_id": f"settings:{message.chat.id}"})
+    await finish_owner_command(
+        message, old_panel_ids, fresh.get("message_id") if fresh else None
+    )
 
 
 @dp.callback_query(F.data.startswith("startcfg:"))
