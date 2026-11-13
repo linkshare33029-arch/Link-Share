@@ -1,23 +1,21 @@
 import html
 
 DEFAULT_ABOUT_TEXT = (
-    "<i>✦ <b>ᴀʙᴏᴜᴛ {bot_name}</b> ✦\n\n"
-    "<b>{bot_name}</b> makes sharing access to configured groups and channels simple. "
-    "Choose an available option on Start or open a {bot_name} invite link to get a fresh invite.\n\n"
-    "<b>✦ Hᴏᴡ ɪᴛ ᴡᴏʀᴋs</b>\n"
-    "Open the invite link in Telegram, then tap the button to join the selected group or channel. "
-    "For private chats, users must receive approval before joining.\n\n"
-    "<b>✦ ɪɴᴠɪᴛᴇ ɴᴏᴛᴇs</b>\n"
-    "Invites expire in 2 minutes. Public-group links allow one member. "
-    "If a link expires, open the original link again to get a new one.\n\n"
-    "<b>✨ ᴀʙᴏᴜᴛ ᴍᴇ</b>\n\n"
-    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\n"
-    "<b>➤ ɴᴀᴍᴇ : {bot_mention}</b>\n"
-    "<b>➤ ᴄʀᴇᴀᴛᴏʀ : ʏᴜᴛᴀ</b>\n"
-    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂ᴏᴋᴏ</b>\n"
-    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\n"
-    "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b></i>"
+    "<i>✨ ᴀʙᴏᴜᴛ ᴍᴇ</i>\\n\\n"
+    "<i>{bot_mention} helps users discover and join the communities shared through this bot. "
+    "Choose an available option on the Start page to receive a fresh invitation. "
+    "Open the invitation in Telegram and follow the on-screen steps to join. "
+    "Private communities may require an additional join-request approval. "
+    "If an invitation expires, return to the original link and request a new one.</i>\\n\\n"
+    "<b>✦ ɪɴғᴏʀᴍᴀᴛɪᴏɴ</b>\\n"
+    "<b>➤ ɴᴀᴍᴇ : {bot_mention}</b>\\n"
+    "<b>➤ ᴄʀᴇᴀᴛᴏʀ : ʏᴜᴛᴀ</b>\\n"
+    "<b>➤ ᴏᴡɴᴇʀ : 𝓚𝔂𝓸ᴋᴏ</b>\\n"
+    "<b>➤ ᴍᴀᴅᴇ ғᴏʀ : {anime}</b>\\n"
+    "<b>➤ ᴠᴇʀsɪᴏɴ : ✧ ᴠ 0.1 ⚡</b>"
 )
+
+
 def render_about(bot_info):
     bot_name = html.escape(bot_info.full_name)
     if bot_info.username:
