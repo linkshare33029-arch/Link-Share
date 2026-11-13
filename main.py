@@ -463,7 +463,7 @@ async def clear_owner_panels(chat_id: int, owner_id: int):
     keys = [f"home:{chat_id}", f"settings:{chat_id}", f"commands:{chat_id}", f"picker:{owner_id}", f"prompt:{owner_id}"]
     saved = await asyncio.gather(*(ui_state.find_one({"_id": key}) for key in keys))
     old_panel_ids = [
-        item["message_id"] for item in saved[:2]
+        item["message_id"] for item in saved[:3]
         if item and item.get("message_id")
     ]
     await asyncio.gather(*(ui_state.delete_one({"_id": key}) for key in keys))
