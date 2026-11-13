@@ -243,7 +243,6 @@ def start_settings_keyboard(config):
          InlineKeyboardButton(text=f"{mark(states[1])} {small_caps_label('Button 2')}", callback_data="startcfg:button2")],
         [InlineKeyboardButton(text=f"{mark(states[2])} {small_caps_label('Button 3')}", callback_data="startcfg:button3"),
          InlineKeyboardButton(text=f"{mark(states[3])} {small_caps_label('Button 4')}", callback_data="startcfg:button4")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:close")],
     ])
 
 
@@ -458,14 +457,14 @@ async def home_text():
 
 async def clear_owner_panels(chat_id: int, owner_id: int):
     # Read and clear independent UI state concurrently to reduce command latency.
-    keys = [f"home:{chat_id}", f"settings:{chat_id}", f"picker:{owner_id}", f"prompt:{owner_id}"]
+    keys = [f"home:{chat_id}", f"settings:{chat_id}", f"commands:{chat_id}", f"picker:{owner_id}", f"prompt:{owner_id}"]
     saved = await asyncio.gather(*(ui_state.find_one({"_id": key}) for key in keys))
     old_panel_ids = [
         item["message_id"] for item in saved[:2]
         if item and item.get("message_id")
     ]
     await asyncio.gather(*(ui_state.delete_one({"_id": key}) for key in keys))
-    picker = saved[2]
+    picker = saved[3]
     if picker and picker.get("prompt_message_id"):
         try:
             await BOT.delete_message(chat_id, picker["prompt_message_id"])
@@ -754,6 +753,77 @@ async def broadcast_command(message: Message):
         f"<b>Delivered:</b> {delivered}\n"
         f"<b>Failed:</b> {failed}"
     )
+
+
+
+
+COMMANDS_PAGE_SIZE = 6
+OWNER_COMMANDS = [
+    ("/start", "Open the public Start page."),
+    ("/admin", "Open the owner control panel."),
+    ("/set", "Configure the Links Post caption, media and button."),
+    ("/setstart", "Configure the Start page caption, media and buttons."),
+    ("/broadcast", "Copy a message to all saved users."),
+    ("/commands", "Browse this owner command guide."),
+    ("/owner", "Open the owner control panel (alias)."),
+]
+
+
+def commands_page(page: int = 0):
+    total = max(1, (len(OWNER_COMMANDS) + COMMANDS_PAGE_SIZE - 1) // COMMANDS_PAGE_SIZE)
+    page = max(0, min(page, total - 1))
+    selected = OWNER_COMMANDS[page * COMMANDS_PAGE_SIZE:(page + 1) * COMMANDS_PAGE_SIZE]
+    body = "<b><i>✦ ᴏᴡɴᴇʀ ᴄᴏᴍᴍᴀɴᴅs</i></b>\n\n"
+    body += "\n".join(f"<b>{html.escape(command)}</b> — <i>{html.escape(description)}</i>" for command, description in selected)
+    body += f"\n\n<i>Page {page + 1} of {total}</i>"
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text=small_caps_label("Previous"), callback_data=f"commands:page:{page - 1}"))
+    if page < total - 1:
+        nav.append(InlineKeyboardButton(text=small_caps_label("Next"), callback_data=f"commands:page:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    return body, InlineKeyboardMarkup(inline_keyboard=rows), page
+
+
+@dp.message(Command("commands"))
+async def commands_command(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    await clear_owner_prompt(message.from_user.id)
+    key = f"commands:{message.chat.id}"
+    previous = await ui_state.find_one({"_id": key})
+    body, markup, page = commands_page(0)
+    sent = await message.answer(body, reply_markup=markup)
+    await ui_state.update_one({"_id": key}, {"$set": {"message_id": sent.message_id, "page": page}}, upsert=True)
+    if previous and previous.get("message_id") and previous["message_id"] != sent.message_id:
+        try:
+            await BOT.delete_message(message.chat.id, previous["message_id"])
+        except TelegramAPIError:
+            pass
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+
+
+@dp.callback_query(F.data.startswith("commands:page:"))
+async def commands_page_navigation(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    try:
+        page = int(call.data.rsplit(":", 1)[1])
+    except (ValueError, IndexError):
+        await call.answer("Invalid page", show_alert=True)
+        return
+    body, markup, page = commands_page(page)
+    await call.answer()
+    await edit_panel(call.message, body, markup)
+    await ui_state.update_one({"_id": f"commands:{call.message.chat.id}"}, {"$set": {
+        "message_id": call.message.message_id, "page": page,
+    }}, upsert=True)
 
 
 @dp.message(Command("admin"))
@@ -1710,6 +1780,7 @@ async def main():
             BotCommand(command="set", description="Configure Links Post"),
             BotCommand(command="setstart", description="Configure Start Post & About"),
             BotCommand(command="broadcast", description="Broadcast a message to all users"),
+            BotCommand(command="commands", description="Show Owner Commands"),
             BotCommand(command="owner", description="Open Owner Control Panel (Alias)"),
         ]
         for owner_id in OWNER_IDS:
