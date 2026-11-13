@@ -922,8 +922,8 @@ async def start_settings_callback(call: CallbackQuery):
         await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"text": ""}})
         await cleanup_empty_start_config()
         config = await get_start_config()
-        await call.answer("Default caption restored")
-        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        await call.answer("✨ Successfully Restored to default.", show_alert=True)
+        await edit_panel(call.message, "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
         return
     if action == "media":
         await call.answer()
@@ -934,8 +934,8 @@ async def start_settings_callback(call: CallbackQuery):
         await settings.update_one({"_id": START_CONFIG_ID}, {"$unset": {"media_type": "", "media_file_id": ""}})
         await cleanup_empty_start_config()
         config = await get_start_config()
-        await call.answer("Media removed")
-        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        await call.answer("✨ Successfully removed your bot start poster.", show_alert=True)
+        await edit_panel(call.message, "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
         return
 
     prompt_action = None
@@ -949,7 +949,7 @@ async def start_settings_callback(call: CallbackQuery):
             "Links are inserted without opening a preview."
         )
     elif action == "media_edit":
-        prompt_action, prompt_text = "start_media", "Send one photo or GIF for the /start page."
+        prompt_action, prompt_text = "start_media", "Only GIFs and images are supported. Send the new start media here."
     elif action.startswith("button") and action[6:].isdigit():
         index = int(action[6:])
         if index not in range(1, 5):
@@ -963,10 +963,10 @@ async def start_settings_callback(call: CallbackQuery):
             }})
             config = await get_start_config()
             await call.answer(f"Button {index} disabled")
-            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+            await edit_panel(call.message, start_buttons_body(config), start_buttons_keyboard(config))
             return
         prompt_action = f"start_button_text_{index}"
-        prompt_text = f"Send the text for Button {index} (1–64 characters)."
+        prompt_text = f"Send text for Start Message Button {index}."
     else:
         await call.answer("Unknown setting", show_alert=True)
         return
