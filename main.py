@@ -881,9 +881,17 @@ async def start_settings_callback(call: CallbackQuery):
     config = await get_start_config()
 
     if action == "cancel":
+        pending = await ui_state.find_one({"_id": f"prompt:{call.from_user.id}"})
         await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
         await call.answer("Cancelled")
-        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        if pending and str(pending.get("action", "")).startswith("start_button_"):
+            await edit_panel(call.message, start_buttons_body(config), start_buttons_keyboard(config))
+        elif pending and pending.get("action") == "start_caption":
+            await edit_panel(call.message, "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
+        elif pending and pending.get("action") == "start_media":
+            await edit_panel(call.message, "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
+        else:
+            await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
         return
 
     if action in {"home", "close"}:
@@ -912,8 +920,9 @@ async def start_settings_callback(call: CallbackQuery):
         await edit_panel(call.message, body, start_submenu_keyboard("caption", config))
         return
     if action == "caption_show":
-        value = config.get("text") or "No custom caption is set. Default Start text is active."
+        value = config.get("text") or render_start_text(config, await get_bot_info(), call.from_user)
         value = html.unescape(re.sub(r"<[^>]*>", "", value))
+        value = re.sub(r"\\s+", " ", value).strip()
         if len(value) > 200:
             value = value[:197] + "..."
         await call.answer(value, show_alert=True)
@@ -986,7 +995,7 @@ async def show_start_about(call: CallbackQuery):
     # About is code-defined and always replaces the current Start message.
     body = render_about(await get_bot_info())
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="start:back")]
+        [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="start:back")]
     ])
     try:
         if call.message.photo or call.message.animation or call.message.document:
