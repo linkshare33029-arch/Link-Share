@@ -908,10 +908,7 @@ async def start_settings_callback(call: CallbackQuery):
 
     if action == "caption":
         await call.answer()
-        body = "<b><i>✦ ᴄᴀᴘᴛɪᴏɴ sᴇᴛᴛɪɴɢs</i></b>\n\n" + (
-            "<i>✅ A custom caption is currently set.</i>" if (config.get("text") or "").strip()
-            else "<i>❌ No custom caption. The default Start text is active.</i>"
-        )
+        body = "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>
         await edit_panel(call.message, body, start_submenu_keyboard("caption", config))
         return
     if action == "caption_show":
@@ -930,10 +927,7 @@ async def start_settings_callback(call: CallbackQuery):
         return
     if action == "media":
         await call.answer()
-        body = "<b><i>✦ ᴍᴇᴅɪᴀ sᴇᴛᴛɪɴɢs</i></b>\n\n" + (
-            "<i>✅ Media is currently added.</i>" if config.get("media_file_id")
-            else "<i>❌ No media added yet.</i>"
-        )
+        body = "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>
         await edit_panel(call.message, body, start_submenu_keyboard("media", config))
         return
     if action == "media_remove":
