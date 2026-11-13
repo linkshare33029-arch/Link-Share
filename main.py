@@ -138,16 +138,38 @@ async def get_start_config():
     return {**DEFAULT_START_CONFIG, **(config or {})}
 
 
-def render_start_text(config, bot_info=None):
+def render_start_text(config, bot_info=None, user=None):
     value = (config.get("text") or "").strip()
-    if value:
-        return value
+    if not value:
+        if bot_info is None:
+            value = "<i>✨ Welcome! Choose an option below to continue.</i>"
+        else:
+            name = html.escape(bot_info.full_name)
+            username = html.escape(bot_info.username, quote=True) if bot_info.username else ""
+            mention = f'<a href="https://t.me/{username}">{name}</a>' if username else name
+            value = DEFAULT_START_TEXT.format(bot_mention=mention)
     if bot_info is None:
-        return "<i>✨ Welcome! Choose an option below to continue.</i>"
-    name = html.escape(bot_info.full_name)
+        return value
+    bot_name = html.escape(bot_info.full_name)
     username = html.escape(bot_info.username, quote=True) if bot_info.username else ""
-    mention = f'<a href="https://t.me/{username}">{name}</a>' if username else name
-    return DEFAULT_START_TEXT.format(bot_mention=mention)
+    bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>' if username else bot_name
+    anime = '<a href="http://t.me/lexianime">Lexi Anime</a>'
+    user_name = html.escape(user.full_name) if user else ""
+    mention = (
+        f'<a href="tg://user?id={user.id}">{user_name}</a>'
+        if user else user_name
+    )
+    return (value.replace("{bot_name}", bot_name)
+                 .replace("{bot_mention}", bot_mention)
+                 .replace("{user_name}", user_name)
+                 .replace("{mention}", mention)
+                 .replace("{anime}", anime))
+
+
+def telegram_html_length(value: str) -> int:
+    # Telegram applies its limits to rendered text, not HTML tag syntax.
+    plain = html.unescape(re.sub(r"<[^>]*>", "", value))
+    return telegram_text_length(plain)
 
 def start_config_keyboard(config):
     # Keep the four configured slots in their fixed two-row positions.
@@ -171,7 +193,7 @@ async def send_start_page(message: Message):
     if not config.get("enabled", True):
         await message.answer("This page is currently unavailable.")
         return
-    body = render_start_text(config, await BOT.get_me())
+    body = render_start_text(config, await BOT.get_me(), message.from_user)
     markup = start_config_keyboard(config)
     media_id, media_type = config.get("media_file_id"), config.get("media_type")
     try:
@@ -837,7 +859,8 @@ async def start_settings_callback(call: CallbackQuery):
             "Send the new /start caption. HTML formatting is supported.\\n\\n"
             "Available variables (each is individually copyable):\\n"
             "<code>{bot_name}</code>\\n<code>{bot_mention}</code>\\n"
-            "<code>{user_name}</code>\\n<code>{mention}</code>\\n<code>{anime}</code>"
+            "<code>{user_name}</code>\\n<code>{mention}</code>\\n<code>{anime}</code>\\n\\n"
+            "Links are inserted without opening a preview."
         )
     elif action == "media_edit":
         prompt_action, prompt_text = "start_media", "Send one photo or GIF for the /start page."
@@ -881,7 +904,7 @@ async def show_start_about(call: CallbackQuery):
     ])
     try:
         if call.message.photo or call.message.animation or call.message.document:
-            if telegram_text_length(body) > 1024:
+            if telegram_html_length(body) > 1024:
                 await call.answer(
                     "About text exceeds Telegram's 1024-character media-caption limit. "
                     "Shorten it in about.py to show it on this same media message.",
@@ -1359,7 +1382,7 @@ async def owner_input(message: Message):
             return
         start_cfg = await get_start_config()
         limit = 1024 if start_cfg.get("media_file_id") else 4096
-        if telegram_text_length(value) > limit:
+        if telegram_html_length(value) > limit:
             await reject_input(f"Caption is too long. Telegram allows {limit} characters here.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"text": value}}, upsert=True)
@@ -1373,7 +1396,7 @@ async def owner_input(message: Message):
             await reject_input("Please send a photo or GIF.")
             return
         start_cfg = await get_start_config()
-        if telegram_text_length(start_cfg.get("text") or "") > 1024:
+        if telegram_html_length(start_cfg.get("text") or render_start_text(start_cfg, await BOT.get_me(), message.from_user)) > 1024:
             await reject_input("Media not changed: shorten the Start caption to 1024 characters first.")
             return
         await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {
