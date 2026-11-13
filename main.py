@@ -240,7 +240,7 @@ def start_settings_keyboard(config):
         [InlineKeyboardButton(text=small_caps_label("Caption"), callback_data="startcfg:caption"),
          InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media")],
         [InlineKeyboardButton(text=small_caps_label("Buttons"), callback_data="startcfg:buttons"),
-         InlineKeyboardButton(text=f"{small_caps_label('About')} {'ON ✅' if config.get('about_enabled', True) else 'OFF ❌'}", callback_data="startcfg:about_toggle")],
+         InlineKeyboardButton(text=small_caps_label("About"), callback_data="startcfg:about_toggle")],
     ])
 
 
