@@ -264,7 +264,7 @@ def start_submenu_keyboard(kind, config):
             text=small_caps_label("Edit") if has_value else "✚ " + small_caps_label("Add"),
             callback_data="startcfg:caption_edit",
         )
-        rows = [[first, InlineKeyboardButton(text=small_caps_label("Show"), callback_data="startcfg:caption_show")],
+        rows = [[first, InlineKeyboardButton(text=small_caps_label("See"), callback_data="startcfg:caption_show")],
                 [InlineKeyboardButton(text=small_caps_label("Default"), callback_data="startcfg:caption_default")]]
     else:
         has_value = bool(config.get("media_file_id"))
@@ -275,7 +275,7 @@ def start_submenu_keyboard(kind, config):
         rows = [[first]]
         if has_value:
             rows[0].append(InlineKeyboardButton(text=small_caps_label("Remove"), callback_data="startcfg:media_remove"))
-    rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data="startcfg:home")])
+    rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="startcfg:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1428,7 +1428,7 @@ async def owner_input(message: Message):
         except TelegramAPIError:
             pass
         await BOT.edit_message_text(
-            f"<i>Button {index} text saved. Now send its URL (http:// or https://).</i>",
+            f"<i>Now send the URL for Start Message Button {index}.</i>",
             chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="startcfg:cancel")
@@ -1531,10 +1531,23 @@ async def owner_input(message: Message):
     try:
         if action.startswith("start_"):
             config = await get_start_config()
+            if action == "start_caption":
+                success = "<i>✨ Successfully Updated New Start Message Caption.</i>"
+                markup = start_submenu_keyboard("caption", config)
+            elif action == "start_media":
+                success = "<i>✨ Start Message media added successfully.</i>"
+                markup = start_submenu_keyboard("media", config)
+            elif action.startswith("start_button_url_"):
+                index = action.rsplit("_", 1)[1]
+                success = f"<i>✨ Start Message Button {index} added successfully.</i>"
+                markup = start_buttons_keyboard(config)
+            else:
+                success = start_settings_body(config)
+                markup = start_settings_keyboard(config)
             await BOT.edit_message_text(
-                start_settings_body(config),
+                success,
                 chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
-                reply_markup=start_settings_keyboard(config),
+                reply_markup=markup,
             )
         else:
             await BOT.edit_message_text(
