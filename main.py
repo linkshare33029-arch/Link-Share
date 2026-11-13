@@ -358,9 +358,9 @@ def main_keyboard(items, page=0):
 
 def add_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Channel", callback_data="pick:channel"),
-         InlineKeyboardButton(text="Group", callback_data="pick:group")],
-        [InlineKeyboardButton(text="Back", callback_data="home")],
+        [InlineKeyboardButton(text=small_caps_label("Channel"), callback_data="pick:channel"),
+         InlineKeyboardButton(text=small_caps_label("Group"), callback_data="pick:group")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
     ])
 
 
@@ -370,14 +370,14 @@ def settings_keyboard():
          InlineKeyboardButton(text="ᴍᴇᴅɪᴀ", callback_data="cfg:media")],
         [InlineKeyboardButton(text="ᴄᴀᴘᴛɪᴏɴ", callback_data="cfg:caption"),
          InlineKeyboardButton(text="ʙᴜᴛᴛᴏɴ", callback_data="cfg:button")],
-        [InlineKeyboardButton(text="Back", callback_data="home")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
     ])
 
 
 def detail_keyboard(code):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Replace Chat", callback_data=f"replace:{code}")],
-        [InlineKeyboardButton(text="Back", callback_data="home")],
+        [InlineKeyboardButton(text=small_caps_label("Replace Chat"), callback_data=f"replace:{code}")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
     ])
 
 
@@ -525,7 +525,7 @@ async def show_settings(message: Message):
 def request_chat_keyboard(kind: str):
     request_id = secrets.randbelow(2_000_000_000) + 1
     button = KeyboardButton(
-        text=f"Choose {kind.title()}",
+        text=small_caps_label(f"Choose {kind.title()}"),
         request_chat=KeyboardButtonRequestChat(
             request_id=request_id,
             chat_is_channel=(kind == "channel"),
@@ -729,6 +729,7 @@ async def owner_command(message: Message):
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await clear_owner_prompt(message.from_user.id)
     sent = await message.answer(
         "<b><u>LINKS POST</u></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
@@ -955,19 +956,19 @@ async def add_menu(call: CallbackQuery):
         "Select a chat:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[
-                KeyboardButton(text="Channel", request_chat=KeyboardButtonRequestChat(
+                KeyboardButton(text=small_caps_label("Channel"), request_chat=KeyboardButtonRequestChat(
                     request_id=secrets.randbelow(2_000_000_000) + 1,
                     chat_is_channel=True,
                     request_title=True,
                     request_username=True,
                 )),
-                KeyboardButton(text="Group", request_chat=KeyboardButtonRequestChat(
+                KeyboardButton(text=small_caps_label("Group"), request_chat=KeyboardButtonRequestChat(
                     request_id=secrets.randbelow(2_000_000_000) + 1,
                     chat_is_channel=False,
                     request_title=True,
                     request_username=True,
                 )),
-            ], [KeyboardButton(text="Back")]],
+            ], [KeyboardButton(text=small_caps_label("Back"))]],
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
@@ -1003,15 +1004,15 @@ async def replace_chat_menu(call: CallbackQuery):
         "Select the replacement chat:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[[
-                KeyboardButton(text="Channel", request_chat=KeyboardButtonRequestChat(
+                KeyboardButton(text=small_caps_label("Channel"), request_chat=KeyboardButtonRequestChat(
                     request_id=secrets.randbelow(2_000_000_000) + 1,
                     chat_is_channel=True, request_title=True, request_username=True,
                 )),
-                KeyboardButton(text="Group", request_chat=KeyboardButtonRequestChat(
+                KeyboardButton(text=small_caps_label("Group"), request_chat=KeyboardButtonRequestChat(
                     request_id=secrets.randbelow(2_000_000_000) + 1,
                     chat_is_channel=False, request_title=True, request_username=True,
                 )),
-            ], [KeyboardButton(text="Back")]],
+            ], [KeyboardButton(text=small_caps_label("Back"))]],
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
@@ -1243,7 +1244,7 @@ async def cfg_prompt(call: CallbackQuery):
         call.message,
         prompts[action],
         InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Cancel", callback_data="settings")]
+            [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="settings")]
         ]),
     )
 
