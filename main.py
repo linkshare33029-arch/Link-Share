@@ -951,11 +951,13 @@ async def start_settings_callback(call: CallbackQuery):
     prompt_text = None
     if action == "caption_edit":
         prompt_action, prompt_text = "start_caption", (
-            "Send the new /start caption. HTML formatting is supported.\n\n"
-            "Available variables (each is individually copyable):\n"
-            "<code>{bot_name}</code>\n<code>{bot_mention}</code>\n"
-            "<code>{user_name}</code>\n<code>{mention}</code>\n<code>{anime}</code>\n\n"
-            "Links are inserted without opening a preview."
+            "Send The New Caption text.\\n\\n"
+            "Available variables (tap any item to copy):\\n"
+            "<code>{bot_name}</code> — Bot display name\\n"
+            "<code>{bot_mention}</code> — Linked bot name\\n"
+            "<code>{user_name}</code> — User display name\\n"
+            "<code>{mention}</code> — Linked user name\\n"
+            "<code>{anime}</code> — Lexi Anime link"
         )
     elif action == "media_edit":
         prompt_action, prompt_text = "start_media", "Only GIFs and images are supported. Send the new start media here."
