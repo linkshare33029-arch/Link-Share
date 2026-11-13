@@ -249,10 +249,10 @@ def start_settings_body(config):
     media_on = bool(config.get("media_file_id"))
     about_on = config.get("about_enabled", True)
     return (
-        "<b><u>START MESSAGE</u></b>\\n\\n"
-        "<i>Customize your bot's start message using the following options.</i>\\n\\n"
-        f"<i>Caption: {'Added ✅' if caption_on else 'Default ✨'}</i>\\n"
-        f"<i>Media: {'Added ✅' if media_on else 'None ❌'}</i>\\n"
+        "<b><u>START MESSAGE</u></b>\n\n"
+        "<i>Customize your bot's start message using the following options.</i>\n\n"
+        f"<i>Caption: {'Added ✅' if caption_on else 'Default ✨'}</i>\n"
+        f"<i>Media: {'Added ✅' if media_on else 'None ❌'}</i>\n"
         f"<i>About: {'Enabled ✅' if about_on else 'Disabled ❌'}</i>"
     )
 
@@ -284,7 +284,7 @@ def start_buttons_body(config):
     for index in range(1, 5):
         enabled = bool((config.get(f"button{index}_text") or "").strip() and (config.get(f"button{index}_url") or "").strip())
         lines.append(f"<i>Button {index}: {'ON ✅' if enabled else 'OFF ❌'}</i>")
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 def start_buttons_keyboard(config):
@@ -887,9 +887,9 @@ async def start_settings_callback(call: CallbackQuery):
         if pending and str(pending.get("action", "")).startswith("start_button_"):
             await edit_panel(call.message, start_buttons_body(config), start_buttons_keyboard(config))
         elif pending and pending.get("action") == "start_caption":
-            await edit_panel(call.message, "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
+            await edit_panel(call.message, "<b><u>CAPTION</u></b>\n\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
         elif pending and pending.get("action") == "start_media":
-            await edit_panel(call.message, "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
+            await edit_panel(call.message, "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
         else:
             await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
         return
@@ -922,7 +922,7 @@ async def start_settings_callback(call: CallbackQuery):
     if action == "caption_show":
         value = config.get("text") or render_start_text(config, await get_bot_info(), call.from_user)
         value = html.unescape(re.sub(r"<[^>]*>", "", value))
-        value = re.sub(r"\\s+", " ", value).strip()
+        value = re.sub(r"\s+", " ", value).strip()
         if len(value) > 200:
             value = value[:197] + "..."
         await call.answer(value, show_alert=True)
@@ -932,7 +932,7 @@ async def start_settings_callback(call: CallbackQuery):
         await cleanup_empty_start_config()
         config = await get_start_config()
         await call.answer("✨ Successfully Restored to default.", show_alert=True)
-        await edit_panel(call.message, "<b><u>CAPTION</u></b>\\n\\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
+        await edit_panel(call.message, "<b><u>CAPTION</u></b>\n\n<i>Customize your bot's start message Caption.</i>", start_submenu_keyboard("caption", config))
         return
     if action == "media":
         await call.answer()
@@ -944,7 +944,7 @@ async def start_settings_callback(call: CallbackQuery):
         await cleanup_empty_start_config()
         config = await get_start_config()
         await call.answer("✨ Successfully removed your bot start poster.", show_alert=True)
-        await edit_panel(call.message, "<b><u>MEDIA</u></b>\\n\\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
+        await edit_panel(call.message, "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config))
         return
 
     prompt_action = None
