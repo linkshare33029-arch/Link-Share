@@ -95,7 +95,7 @@ users = CollectionProxy("users")
 
 START_CONFIG_ID = "start_message"
 DEFAULT_START_CONFIG = {
-    "_id": START_CONFIG_ID, "enabled": True, "text": "",
+    "_id": START_CONFIG_ID, "enabled": True, "text": "", "about_enabled": True,
     "media_type": None, "media_file_id": None,
     "button1_text": "", "button1_url": "", "button2_text": "", "button2_url": "",
     "button3_text": "", "button3_url": "", "button4_text": "", "button4_url": "",
@@ -193,8 +193,9 @@ def start_config_keyboard(config):
                 row.append(InlineKeyboardButton(text=small_caps_label(label[:64]), url=url))
         if row:
             rows.append(row)
-    # About is always the final row, below the two configured button rows.
-    rows.append([InlineKeyboardButton(text=small_caps_label("About"), callback_data="start:about")])
+    # About is displayed only while enabled in owner settings.
+    if config.get("about_enabled", True):
+        rows.append([InlineKeyboardButton(text=small_caps_label("About"), callback_data="start:about")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def send_start_page(message: Message):
