@@ -328,8 +328,14 @@ async def show_start_settings(message: Message):
 
 
 async def clear_owner_prompt(owner_id: int):
-    """Clear pending input state when an owner navigates away from a settings prompt."""
+    """Clear pending input state and remove its separate prompt message."""
+    pending = await ui_state.find_one({"_id": f"prompt:{owner_id}"})
     await ui_state.delete_one({"_id": f"prompt:{owner_id}"})
+    if pending and pending.get("prompt_message_id") and pending.get("panel_chat_id"):
+        try:
+            await BOT.delete_message(pending["panel_chat_id"], pending["prompt_message_id"])
+        except TelegramAPIError:
+            pass
 
 def telegram_text_length(value: str) -> int:
     """Count text as UTF-16 code units, matching Telegram's entity length rules."""
@@ -363,6 +369,7 @@ BOT = ActiveBotProxy()
 dp = Dispatcher()
 expiry_tasks = {}
 POST_CONFIG_CACHE = {}
+broadcast_tasks = {}
 
 
 def is_owner(user_id: int) -> bool:
@@ -704,17 +711,24 @@ async def start(message: Message):
     await send_start_page(message)
 
 
-@dp.message(Command("broadcast"))
-async def broadcast_command(message: Message):
-    """Copy a replied-to message, or the command message itself, to every saved user."""
-    if not message.from_user or not is_owner(message.from_user.id):
-        return
+async def cancel_broadcast(owner_id: int, chat_id: int | None = None):
+    """Cancel one owner's pending broadcast and remove its prompt."""
+    task = broadcast_tasks.pop(owner_id, None)
+    if task and task is not asyncio.current_task() and not task.done():
+        task.cancel()
+    state = await ui_state.find_one({"_id": f"broadcast:{owner_id}"})
+    await ui_state.delete_one({"_id": f"broadcast:{owner_id}"})
+    if state and state.get("prompt_message_id"):
+        try:
+            await BOT.delete_message(state.get("chat_id", chat_id), state["prompt_message_id"])
+        except (TelegramAPIError, TypeError):
+            pass
 
-    source_message = message.reply_to_message or message
+
+async def run_broadcast(source_message: Message, chat_id: int, pin: bool):
     users_doc = await users.find_one({"_id": "all"}, {"id": 1})
     saved_ids = (users_doc or {}).get("id", "")
-    recipient_ids = []
-    seen_ids = set()
+    recipient_ids, seen_ids = [], set()
     for raw_id in saved_ids.split(","):
         raw_id = raw_id.strip()
         if not raw_id:
@@ -727,25 +741,23 @@ async def broadcast_command(message: Message):
         if user_id > 0 and user_id not in seen_ids:
             seen_ids.add(user_id)
             recipient_ids.append(user_id)
-
     if not recipient_ids:
-        await message.answer("No users are saved in the users collection yet.")
+        await BOT.send_message(chat_id, "<i>No users are saved in the users collection yet.</i>")
         return
 
-    delivered = 0
-    failed = 0
-    inline_markup = (
-        source_message.reply_markup
-        if isinstance(source_message.reply_markup, InlineKeyboardMarkup)
-        else None
-    )
+    delivered = failed = pinned = pin_failed = 0
+    inline_markup = source_message.reply_markup if isinstance(source_message.reply_markup, InlineKeyboardMarkup) else None
     for user_id in recipient_ids:
         try:
-            await source_message.copy_to(
-                chat_id=user_id,
-                reply_markup=inline_markup,
-            )
+            copied = await source_message.copy_to(chat_id=user_id, reply_markup=inline_markup)
             delivered += 1
+            if pin:
+                try:
+                    await BOT.pin_chat_message(user_id, copied.message_id, disable_notification=True)
+                    pinned += 1
+                except TelegramAPIError as exc:
+                    pin_failed += 1
+                    log.info("Broadcast pin failed for user %s: %s", user_id, exc)
         except TelegramAPIError as exc:
             failed += 1
             log.info("Broadcast delivery failed for user %s: %s", user_id, exc)
@@ -754,14 +766,59 @@ async def broadcast_command(message: Message):
             log.exception("Unexpected broadcast delivery failure for user %s", user_id)
         await asyncio.sleep(0.04)
 
-    await message.answer(
-        "<b>Broadcast completed.</b>\n\n"
-        f"<b>Users:</b> {len(recipient_ids)}\n"
-        f"<b>Delivered:</b> {delivered}\n"
+    result = (
+        "<b>✨ Broadcast completed.</b>\\n\\n"
+        f"<b>Users:</b> {len(recipient_ids)}\\n"
+        f"<b>Delivered:</b> {delivered}\\n"
         f"<b>Failed:</b> {failed}"
     )
+    if pin:
+        result += f"\\n<b>Pinned:</b> {pinned}\\n<b>Pin failed:</b> {pin_failed}"
+    await BOT.send_message(chat_id, result)
 
 
+async def broadcast_timeout(owner_id: int, chat_id: int):
+    try:
+        await asyncio.sleep(30)
+        if await ui_state.find_one({"_id": f"broadcast:{owner_id}"}):
+            await cancel_broadcast(owner_id, chat_id)
+            await BOT.send_message(chat_id, "<i>Broadcast process cancelled because no message was received within 30 seconds.</i>")
+    except asyncio.CancelledError:
+        raise
+    finally:
+        if broadcast_tasks.get(owner_id) is asyncio.current_task():
+            broadcast_tasks.pop(owner_id, None)
+
+
+async def begin_broadcast(message: Message, pin: bool):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    owner_id, chat_id = message.from_user.id, message.chat.id
+    await cancel_broadcast(owner_id, chat_id)
+    if message.reply_to_message:
+        await run_broadcast(message.reply_to_message, chat_id, pin)
+    else:
+        prompt = await message.answer("<i>Send or forward the message you want to broadcast. You have 30 seconds.</i>")
+        await ui_state.update_one(
+            {"_id": f"broadcast:{owner_id}"},
+            {"$set": {"chat_id": chat_id, "prompt_message_id": prompt.message_id, "pin": pin}},
+            upsert=True,
+        )
+        broadcast_tasks[owner_id] = asyncio.create_task(broadcast_timeout(owner_id, chat_id))
+    try:
+        await message.delete()
+    except TelegramAPIError:
+        pass
+
+
+@dp.message(Command("broadcast"))
+async def broadcast_command(message: Message):
+    await begin_broadcast(message, pin=False)
+
+
+@dp.message(Command("pbroadcast"))
+async def pinned_broadcast_command(message: Message):
+    await begin_broadcast(message, pin=True)
 
 
 COMMANDS_PAGE_SIZE = 6
@@ -770,7 +827,8 @@ OWNER_COMMANDS = [
     ("/admin", "Open the owner control panel."),
     ("/set", "Configure the Links Post caption, media and button."),
     ("/setstart", "Configure the Start page caption, media and buttons."),
-    ("/broadcast", "Copy a message to all saved users."),
+    ("/broadcast", "Broadcast a message to all saved users."),
+    ("/pbroadcast", "Broadcast and pin a message for all users."),
     ("/commands", "Browse this owner command guide."),
     ("/owner", "Open the owner control panel (alias)."),
 ]
@@ -798,6 +856,7 @@ def commands_page(page: int = 0):
 async def commands_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     body, markup, page = commands_page(0)
     sent = await message.answer(body, reply_markup=markup)
@@ -833,6 +892,7 @@ async def commands_page_navigation(call: CallbackQuery):
 async def owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
     fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
@@ -843,7 +903,8 @@ async def owner_command(message: Message):
 async def set_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await clear_owner_prompt(message.from_user.id)
+    await cancel_broadcast(message.from_user.id, message.chat.id)
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     sent = await message.answer(
         "<b><u>LINKS POST</u></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
@@ -854,16 +915,14 @@ async def set_command(message: Message):
         {"$set": {"message_id": sent.message_id}},
         upsert=True,
     )
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass
+    await finish_owner_command(message, old_panel_ids, sent.message_id)
 
 
 @dp.message(Command("setstart"))
 async def setstart_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await show_start_settings(message)
     fresh = await ui_state.find_one({"_id": f"settings:{message.chat.id}"})
@@ -1278,7 +1337,7 @@ async def chat_shared(message: Message):
                     "replaced_at": datetime.now(timezone.utc),
                 }},
             )
-            notice = "Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat."
+            notice = "✨ Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat."
         else:
             existing = await chats.find_one({"chat_id": shared.chat_id, "active": True})
             if existing:
@@ -1297,7 +1356,7 @@ async def chat_shared(message: Message):
                 "active": True,
                 "created_at": datetime.now(timezone.utc),
             })
-            notice = "Chat added successfully."
+            notice = "✨ Chat added successfully."
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
         await restore_picker_panel(state, notice)
     except Exception as exc:
@@ -1383,6 +1442,7 @@ async def cfg_prompt(call: CallbackQuery):
 async def unknown_owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
+    await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
     fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
@@ -1392,6 +1452,22 @@ async def unknown_owner_command(message: Message):
 @dp.message()
 async def owner_input(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
+        return
+    broadcast_state = await ui_state.find_one({"_id": f"broadcast:{message.from_user.id}"})
+    if broadcast_state:
+        task = broadcast_tasks.pop(message.from_user.id, None)
+        if task and not task.done():
+            task.cancel()
+        await ui_state.delete_one({"_id": f"broadcast:{message.from_user.id}"})
+        try:
+            await BOT.delete_message(broadcast_state["chat_id"], broadcast_state["prompt_message_id"])
+        except (TelegramAPIError, KeyError):
+            pass
+        try:
+            await message.delete()
+        except TelegramAPIError:
+            pass
+        await run_broadcast(message, broadcast_state["chat_id"], bool(broadcast_state.get("pin")))
         return
     pending = await ui_state.find_one({"_id": f"prompt:{message.from_user.id}"})
     if not pending:
@@ -1813,6 +1889,7 @@ async def main():
             BotCommand(command="set", description="Configure Links Post"),
             BotCommand(command="setstart", description="Configure Start Post & About"),
             BotCommand(command="broadcast", description="Broadcast a message to all users"),
+            BotCommand(command="pbroadcast", description="Broadcast and pin a message for all users"),
             BotCommand(command="commands", description="Show Owner Commands"),
             BotCommand(command="owner", description="Open Owner Control Panel (Alias)"),
         ]
