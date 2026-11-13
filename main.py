@@ -1399,7 +1399,7 @@ async def settings_callback(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Not allowed", show_alert=True)
         return
-    await ui_state.delete_one({"_id": f"prompt:{call.from_user.id}"})
+    await clear_owner_prompt(call.from_user.id)
     await call.answer()
     await show_settings(call.message)
 
@@ -1421,28 +1421,28 @@ async def cfg_prompt(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     action = call.data.split(":", 1)[1]
-    await ui_state.update_one(
-        {"_id": f"prompt:{call.from_user.id}"},
-        {"$set": {
-            "action": action,
-            "panel_chat_id": call.message.chat.id,
-            "panel_message_id": call.message.message_id,
-            "updated_at": datetime.now(timezone.utc),
-        }},
-        upsert=True,
-    )
     prompts = {
         "media": "<i>Send new media for the links post. Only GIF and picture are supported.</i>",
         "caption": "<i>Send new caption for the Link Post.</i>",
         "button": "<i>Send new button text for the Link Post Button.</i>",
     }
     await call.answer()
-    await edit_panel(
-        call.message,
+    prompt = await call.message.answer(
         prompts[action],
-        InlineKeyboardMarkup(inline_keyboard=[
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=small_caps_label("Cancel"), callback_data="settings")]
         ]),
+    )
+    await ui_state.update_one(
+        {"_id": f"prompt:{call.from_user.id}"},
+        {"$set": {
+            "action": action,
+            "panel_chat_id": call.message.chat.id,
+            "panel_message_id": call.message.message_id,
+            "prompt_message_id": prompt.message_id,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
     )
 
 
