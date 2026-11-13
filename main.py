@@ -127,7 +127,7 @@ async def read_start_config():
 
 
 DEFAULT_START_TEXT = (
-    "<i>✨ Welcome to <b>{bot_mention}</b>!\\n\\n"
+    "<i>✨ Welcome to <b>{bot_mention}</b>!\n\n"
     "Choose an option below to explore the available communities and get a fresh invite link.</i>"
 )
 
@@ -867,10 +867,10 @@ async def start_settings_callback(call: CallbackQuery):
     prompt_text = None
     if action == "caption_edit":
         prompt_action, prompt_text = "start_caption", (
-            "Send the new /start caption. HTML formatting is supported.\\n\\n"
-            "Available variables (each is individually copyable):\\n"
-            "<code>{bot_name}</code>\\n<code>{bot_mention}</code>\\n"
-            "<code>{user_name}</code>\\n<code>{mention}</code>\\n<code>{anime}</code>\\n\\n"
+            "Send the new /start caption. HTML formatting is supported.\n\n"
+            "Available variables (each is individually copyable):\n"
+            "<code>{bot_name}</code>\n<code>{bot_mention}</code>\n"
+            "<code>{user_name}</code>\n<code>{mention}</code>\n<code>{anime}</code>\n\n"
             "Links are inserted without opening a preview."
         )
     elif action == "media_edit":
@@ -1326,19 +1326,19 @@ async def owner_input(message: Message):
             pass
         prompt = notice
         if action.startswith("start_button_text_"):
-            prompt += "\\n\\nSend button text (1–64 characters)."
+            prompt += "\n\nSend button text (1–64 characters)."
         elif action.startswith("start_button_url_"):
-            prompt += "\\n\\nSend a complete http:// or https:// URL."
+            prompt += "\n\nSend a complete http:// or https:// URL."
         elif action == "start_caption":
-            prompt += "\\n\\nSend the new /start caption."
+            prompt += "\n\nSend the new /start caption."
         elif action == "start_media":
-            prompt += "\\n\\nSend one photo or GIF."
+            prompt += "\n\nSend one photo or GIF."
         elif action == "caption":
-            prompt += "\\n\\nSend the new Link Post caption."
+            prompt += "\n\nSend the new Link Post caption."
         elif action == "button":
-            prompt += "\\n\\nSend button text (1–64 characters)."
+            prompt += "\n\nSend button text (1–64 characters)."
         elif action == "media":
-            prompt += "\\n\\nSend a photo or GIF."
+            prompt += "\n\nSend a photo or GIF."
         await BOT.edit_message_text(
             f"<i>{html.escape(prompt)}</i>",
             chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
@@ -1473,7 +1473,7 @@ async def owner_input(message: Message):
             )
         else:
             await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\\n\\n<i>Edit caption, media, and button using the buttons below:</i>",
+                "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the buttons below:</i>",
                 chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
                 reply_markup=settings_keyboard(),
             )
