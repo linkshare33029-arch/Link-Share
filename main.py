@@ -1471,11 +1471,11 @@ async def owner_input(message: Message):
             await BOT.delete_message(broadcast_state["chat_id"], broadcast_state["prompt_message_id"])
         except (TelegramAPIError, KeyError):
             pass
+        await run_broadcast(message, broadcast_state["chat_id"], bool(broadcast_state.get("pin")))
         try:
             await message.delete()
         except TelegramAPIError:
             pass
-        await run_broadcast(message, broadcast_state["chat_id"], bool(broadcast_state.get("pin")))
         return
     pending = await ui_state.find_one({"_id": f"prompt:{message.from_user.id}"})
     if not pending:
