@@ -431,10 +431,10 @@ def add_keyboard():
 
 def settings_keyboard(back_callback=None):
     rows = [
-        [InlineKeyboardButton(text="ᴅᴇꜰᴀᴜʟᴛ", callback_data="cfg:default"),
-         InlineKeyboardButton(text="ᴍᴇᴅɪᴀ", callback_data="cfg:media")],
-        [InlineKeyboardButton(text="ᴄᴀᴘᴛɪᴏɴ", callback_data="cfg:caption"),
-         InlineKeyboardButton(text="ʙᴜᴛᴛᴏɴ", callback_data="cfg:button")],
+        [InlineKeyboardButton(text=small_caps_label("Default"), callback_data="cfg:default"),
+         InlineKeyboardButton(text=small_caps_label("Media"), callback_data="cfg:media")],
+        [InlineKeyboardButton(text=small_caps_label("Caption"), callback_data="cfg:caption"),
+         InlineKeyboardButton(text=small_caps_label("Button"), callback_data="cfg:button")],
     ]
     if back_callback:
         rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)])
@@ -580,8 +580,8 @@ async def edit_panel(message: Message, body: str, markup=None):
 
 async def show_settings(message: Message, back_callback="home"):
     body = (
-        "<b><i>LINKS POST</i></b>\n\n"
-        "<i>Edit caption, media, and button using the buttons below:</i>"
+        "<b><u>LINKS POST</u></b>\n\n"
+        "<i>Edit caption, media, and button using the buttons below.</i>"
     )
     await edit_panel(message, body, settings_keyboard(back_callback))
     await ui_state.update_one({"_id": f"settings:{message.chat.id}"},
@@ -868,7 +868,7 @@ async def all_settings_body():
     username = html.escape(bot_info.username, quote=True) if bot_info.username else ""
     bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>' if username else bot_name
     return (
-        "<b><i><u>SETTINGS</u></i></b>\n\n"
+        "<b><u>SETTINGS</u></b>\n\n"
         f"<i>✰ Name: {bot_mention}</i>\n\n"
         "<i>Access/Manage Bot using the following options below.</i>"
     )
@@ -878,14 +878,39 @@ async def all_settings_body():
 async def all_settings_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await cancel_broadcast(message.from_user.id, message.chat.id)
-    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
-    sent = await message.answer(await all_settings_body(), reply_markup=all_settings_keyboard(include_back=False))
+    owner_id, chat_id = message.from_user.id, message.chat.id
+    await cancel_broadcast(owner_id, chat_id)
+    keys = [f"home:{chat_id}", f"settings:{chat_id}", f"commands:{chat_id}", f"picker:{owner_id}", f"prompt:{owner_id}"]
+    saved = await asyncio.gather(*(ui_state.find_one({"_id": key}) for key in keys))
+    old_panel_ids = [
+        item["message_id"] for item in saved[:3]
+        if item and item.get("message_id")
+    ]
+    sent = await message.answer(
+        await all_settings_body(),
+        reply_markup=all_settings_keyboard(include_back=False),
+    )
     await ui_state.update_one(
-        {"_id": f"settings:{message.chat.id}"},
+        {"_id": f"settings:{chat_id}"},
         {"$set": {"message_id": sent.message_id, "settings_root": True}},
         upsert=True,
     )
+    await asyncio.gather(*(
+        ui_state.delete_one({"_id": key})
+        for key in (keys[0], keys[2], keys[3], keys[4])
+    ))
+    prompt = saved[4]
+    if prompt and prompt.get("prompt_message_id") and prompt.get("panel_chat_id"):
+        try:
+            await BOT.delete_message(prompt["panel_chat_id"], prompt["prompt_message_id"])
+        except TelegramAPIError:
+            pass
+    picker = saved[3]
+    if picker and picker.get("prompt_message_id"):
+        try:
+            await BOT.delete_message(chat_id, picker["prompt_message_id"])
+        except TelegramAPIError:
+            pass
     await finish_owner_command(message, old_panel_ids, sent.message_id)
 
 
@@ -898,7 +923,7 @@ async def all_settings_navigation(call: CallbackQuery):
     await clear_owner_prompt(call.from_user.id)
     await call.answer()
     if action == "links":
-        body = "<b><i>LINKS POST</i></b>\n\n<i>Edit caption, media, and button using the options below.</i>"
+        body = "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the options below.</i>"
         await edit_panel(call.message, body, settings_keyboard("allsettings:home"))
     elif action == "start":
         await show_start_settings(call.message, back_callback="allsettings:home")
