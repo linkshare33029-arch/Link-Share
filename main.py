@@ -968,16 +968,51 @@ def commands_page(page: int = 0):
 async def commands_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
-    await cancel_broadcast(message.from_user.id, message.chat.id)
-    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
+
+    owner_id, chat_id = message.from_user.id, message.chat.id
+    # Snapshot the previous UI before creating anything. /commands is the
+    # intentional reset point: its new panel must appear before old UI is cleaned.
+    keys = [
+        f"home:{chat_id}", f"settings:{chat_id}", f"commands:{chat_id}",
+        f"picker:{owner_id}", f"prompt:{owner_id}",
+    ]
+    saved = await asyncio.gather(*(ui_state.find_one({"_id": key}) for key in keys))
+
     body, markup, page = commands_page(0)
     sent = await message.answer(body, reply_markup=markup)
     await ui_state.update_one(
-        {"_id": f"commands:{message.chat.id}"},
+        {"_id": f"commands:{chat_id}"},
         {"$set": {"message_id": sent.message_id, "page": page}},
         upsert=True,
     )
-    await finish_owner_command(message, old_panel_ids, sent.message_id)
+
+    # Only after the fresh panel is visible, cancel workflows and remove old
+    # panels/prompts. Never bulk-delete the owner's chat history or other messages.
+    await cancel_broadcast(owner_id, chat_id)
+    old_panel_ids = {
+        item["message_id"] for item in saved[:3]
+        if item and item.get("message_id") and item["message_id"] != sent.message_id
+    }
+    prompt_state, picker_state = saved[4], saved[3]
+    await asyncio.gather(*(
+        ui_state.delete_one({"_id": key})
+        for key in (keys[0], keys[1], keys[3], keys[4])
+    ))
+
+    delete_jobs = []
+    for old_id in old_panel_ids:
+        delete_jobs.append(BOT.delete_message(chat_id, old_id))
+    if picker_state and picker_state.get("prompt_message_id"):
+        delete_jobs.append(BOT.delete_message(chat_id, picker_state["prompt_message_id"]))
+    if prompt_state and prompt_state.get("prompt_message_id") and prompt_state.get("panel_chat_id"):
+        delete_jobs.append(BOT.delete_message(
+            prompt_state["panel_chat_id"], prompt_state["prompt_message_id"]
+        ))
+    delete_jobs.append(message.delete())
+    results = await asyncio.gather(*delete_jobs, return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception) and not isinstance(result, TelegramAPIError):
+            log.warning("Owner UI cleanup failed after /commands: %s", result)
 
 
 @dp.callback_query(F.data.startswith("commands:page:"))
