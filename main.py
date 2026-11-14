@@ -1555,8 +1555,8 @@ async def unknown_owner_command(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
     command = (message.text or "").split(maxsplit=1)[0].split("@", 1)[0].lower()
-    if command in {"/admin", "/owner"}:
-        return
+    # /admin and /owner are intentionally unsupported; treat them like any
+    # unknown owner command so they are cleaned up and never remain visible.
     await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     await render_home(message)
