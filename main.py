@@ -235,13 +235,16 @@ def small_caps_label(value: str) -> str:
     return value.translate(table)
 
 
-def start_settings_keyboard(config):
-    return InlineKeyboardMarkup(inline_keyboard=[
+def start_settings_keyboard(config, back_callback=None):
+    rows = [
         [InlineKeyboardButton(text=small_caps_label("Caption"), callback_data="startcfg:caption"),
          InlineKeyboardButton(text=small_caps_label("Media"), callback_data="startcfg:media")],
         [InlineKeyboardButton(text=small_caps_label("Buttons"), callback_data="startcfg:buttons"),
          InlineKeyboardButton(text=small_caps_label("About"), callback_data="startcfg:about_toggle")],
-    ])
+    ]
+    if back_callback:
+        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def start_settings_body(config):
@@ -299,9 +302,9 @@ def start_buttons_keyboard(config):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def show_start_settings(message: Message):
+async def show_start_settings(message: Message, back_callback=None):
     config = await get_start_config()
-    body, markup = start_settings_body(config), start_settings_keyboard(config)
+    body, markup = start_settings_body(config), start_settings_keyboard(config, back_callback)
     panel_key = f"settings:{message.chat.id}"
     home_key = f"home:{message.chat.id}"
     existing = await ui_state.find_one({"_id": panel_key})
@@ -426,13 +429,13 @@ def add_keyboard():
     ])
 
 
-def settings_keyboard():
+def settings_keyboard(back_callback="home"):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="ᴅᴇꜰᴀᴜʟᴛ", callback_data="cfg:default"),
          InlineKeyboardButton(text="ᴍᴇᴅɪᴀ", callback_data="cfg:media")],
         [InlineKeyboardButton(text="ᴄᴀᴘᴛɪᴏɴ", callback_data="cfg:caption"),
          InlineKeyboardButton(text="ʙᴜᴛᴛᴏɴ", callback_data="cfg:button")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)],
     ])
 
 
@@ -575,7 +578,7 @@ async def edit_panel(message: Message, body: str, markup=None):
 
 async def show_settings(message: Message):
     body = (
-        "<b><u>LINKS POST</u></b>\n\n"
+        "<b><i>LINKS POST</i></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>"
     )
     await edit_panel(message, body, settings_keyboard())
@@ -838,14 +841,63 @@ async def pinned_broadcast_command(message: Message):
 COMMANDS_PAGE_SIZE = 6
 OWNER_COMMANDS = [
     ("/start", "Open the public Start page."),
-    ("/admin", "Open the owner control panel."),
+    ("/setttings", "Open all bot settings."),
     ("/set", "Configure the Links Post caption, media and button."),
     ("/setstart", "Configure the Start page caption, media and buttons."),
     ("/broadcast", "Broadcast a message to all saved users."),
     ("/pbroadcast", "Broadcast and pin a message for all users."),
     ("/commands", "Browse this owner command guide."),
-    ("/owner", "Open the owner control panel (alias)."),
 ]
+
+
+def all_settings_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="allsettings:links")],
+        [InlineKeyboardButton(text=small_caps_label("Start Page"), callback_data="allsettings:start")],
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="allsettings:back")],
+    ])
+
+
+def all_settings_body():
+    return (
+        "<b><i>⚙️ BOT SETTINGS</i></b>\n\n"
+        "<i>Choose a settings section to manage the bot.</i>"
+    )
+
+
+@dp.message(Command("setttings"))
+async def all_settings_command(message: Message):
+    if not message.from_user or not is_owner(message.from_user.id):
+        return
+    await cancel_broadcast(message.from_user.id, message.chat.id)
+    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
+    sent = await message.answer(all_settings_body(), reply_markup=all_settings_keyboard())
+    await ui_state.update_one(
+        {"_id": f"settings:{message.chat.id}"},
+        {"$set": {"message_id": sent.message_id, "settings_root": True}},
+        upsert=True,
+    )
+    await finish_owner_command(message, old_panel_ids, sent.message_id)
+
+
+@dp.callback_query(F.data.startswith("allsettings:"))
+async def all_settings_navigation(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Not allowed", show_alert=True)
+        return
+    action = call.data.split(":", 1)[1]
+    await clear_owner_prompt(call.from_user.id)
+    await call.answer()
+    if action == "links":
+        body = "<b><i>LINKS POST</i></b>\n\n<i>Edit caption, media, and button using the options below.</i>"
+        await edit_panel(call.message, body, settings_keyboard("allsettings:home"))
+    elif action == "start":
+        await show_start_settings(call.message, back_callback="allsettings:home")
+    elif action == "home":
+        await edit_panel(call.message, all_settings_body(), all_settings_keyboard())
+        await ui_state.update_one({"_id": f"settings:{call.message.chat.id}"}, {"$set": {"settings_root": True}}, upsert=True)
+    elif action == "back":
+        await render_home(call.message, edit_existing=True)
 
 
 def commands_page(page: int = 0):
@@ -899,18 +951,6 @@ async def commands_page_navigation(call: CallbackQuery):
     await ui_state.update_one({"_id": f"commands:{call.message.chat.id}"}, {"$set": {
         "message_id": call.message.message_id, "page": page,
     }}, upsert=True)
-
-
-@dp.message(Command("admin"))
-@dp.message(Command("owner"))
-async def owner_command(message: Message):
-    if not message.from_user or not is_owner(message.from_user.id):
-        return
-    await cancel_broadcast(message.from_user.id, message.chat.id)
-    old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
-    await render_home(message)
-    fresh = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
-    await finish_owner_command(message, old_panel_ids, fresh.get("message_id") if fresh else None)
 
 
 @dp.message(Command("set"))
@@ -1915,17 +1955,15 @@ async def main():
         await bot.set_my_commands([
             BotCommand(command="start", description="Start the Adventure ✨"),
         ])
-        # Owner menu is ordered by everyday priority: entry point, main panel,
-        # then the two configuration areas; /owner remains as a panel alias.
+        # Owner menu exposes the settings hub and supported owner operations.
         owner_commands = [
             BotCommand(command="start", description="Start the Adventure ✨"),
-            BotCommand(command="admin", description="Open Owner Control Panel"),
+            BotCommand(command="setttings", description="Open all bot settings"),
             BotCommand(command="set", description="Configure Links Post"),
             BotCommand(command="setstart", description="Configure Start Post & About"),
             BotCommand(command="broadcast", description="Broadcast a message to all users"),
             BotCommand(command="pbroadcast", description="Broadcast and pin a message for all users"),
             BotCommand(command="commands", description="Show Owner Commands"),
-            BotCommand(command="owner", description="Open Owner Control Panel (Alias)"),
         ]
         for owner_id in OWNER_IDS:
             await bot.set_my_commands(
