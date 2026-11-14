@@ -852,18 +852,25 @@ OWNER_COMMANDS = [
 ]
 
 
-def all_settings_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
+def all_settings_keyboard(include_back=False):
+    rows = [
         [InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="allsettings:links")],
         [InlineKeyboardButton(text=small_caps_label("Start Page"), callback_data="allsettings:start")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="allsettings:back")],
-    ])
+    ]
+    if include_back:
+        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data="allsettings:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def all_settings_body():
+async def all_settings_body():
+    bot_info = await get_bot_info()
+    bot_name = html.escape(bot_info.full_name)
+    username = html.escape(bot_info.username, quote=True) if bot_info.username else ""
+    bot_mention = f'<a href="https://t.me/{username}">{bot_name}</a>' if username else bot_name
     return (
-        "<b><i>⚙️ BOT SETTINGS</i></b>\n\n"
-        "<i>Choose a settings section to manage the bot.</i>"
+        "<b><i><u>SETTINGS</u></i></b>\n\n"
+        f"<i>✰ Name: {bot_mention}</i>\n\n"
+        "<i>Access/Manage Bot using the following options below.</i>"
     )
 
 
@@ -873,7 +880,7 @@ async def all_settings_command(message: Message):
         return
     await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
-    sent = await message.answer(all_settings_body(), reply_markup=all_settings_keyboard())
+    sent = await message.answer(await all_settings_body(), reply_markup=all_settings_keyboard(include_back=False))
     await ui_state.update_one(
         {"_id": f"settings:{message.chat.id}"},
         {"$set": {"message_id": sent.message_id, "settings_root": True}},
@@ -896,7 +903,7 @@ async def all_settings_navigation(call: CallbackQuery):
     elif action == "start":
         await show_start_settings(call.message, back_callback="allsettings:home")
     elif action == "home":
-        await edit_panel(call.message, all_settings_body(), all_settings_keyboard())
+        await edit_panel(call.message, await all_settings_body(), all_settings_keyboard(include_back=False))
         await ui_state.update_one({"_id": f"settings:{call.message.chat.id}"}, {"$set": {"settings_root": True}}, upsert=True)
     elif action == "back":
         await render_home(call.message, edit_existing=True)
