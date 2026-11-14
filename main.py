@@ -576,12 +576,12 @@ async def edit_panel(message: Message, body: str, markup=None):
             log.warning("Panel edit failed: %s", exc)
 
 
-async def show_settings(message: Message):
+async def show_settings(message: Message, back_callback="home"):
     body = (
         "<b><i>LINKS POST</i></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>"
     )
-    await edit_panel(message, body, settings_keyboard())
+    await edit_panel(message, body, settings_keyboard(back_callback))
     await ui_state.update_one({"_id": f"settings:{message.chat.id}"},
         {"$set": {"message_id": message.message_id}}, upsert=True)
 
@@ -1451,8 +1451,12 @@ async def settings_callback(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     await clear_owner_prompt(call.from_user.id)
+    state = await ui_state.find_one({"_id": f"settings:{call.message.chat.id}"})
     await call.answer()
-    await show_settings(call.message)
+    await show_settings(
+        call.message,
+        back_callback="allsettings:home" if state and state.get("settings_root") else "home",
+    )
 
 
 @dp.callback_query(F.data == "cfg:default")
