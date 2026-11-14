@@ -243,7 +243,7 @@ def start_settings_keyboard(config, back_callback=None):
          InlineKeyboardButton(text=small_caps_label("About"), callback_data="startcfg:about_toggle")],
     ]
     if back_callback:
-        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)])
+        rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -389,7 +389,7 @@ def small_caps(value: str) -> str:
 HOME_PAGE_SIZE = 20
 
 
-def main_keyboard(items, page=0):
+def main_keyboard(items, page=0, back_callback=None):
     total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
     page = max(0, min(int(page), total_pages - 1))
     start = page * HOME_PAGE_SIZE
@@ -416,7 +416,9 @@ def main_keyboard(items, page=0):
                 text=small_caps_label("Next"), callback_data=f"home:page:{page + 1}"
             ))
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="+", callback_data="add")])
+    rows.append([InlineKeyboardButton(text="✚ " + small_caps_label("Add"), callback_data="add")])
+    if back_callback:
+        rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data=back_callback)])
     rows.append([InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="settings")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -425,7 +427,7 @@ def add_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Channel"), callback_data="pick:channel"),
          InlineKeyboardButton(text=small_caps_label("Group"), callback_data="pick:group")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
+        [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="home")],
     ])
 
 
@@ -855,7 +857,8 @@ OWNER_COMMANDS = [
 def all_settings_keyboard(include_back=False):
     rows = [
         [InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="allsettings:links")],
-        [InlineKeyboardButton(text=small_caps_label("Start Page"), callback_data="allsettings:start")],
+        [InlineKeyboardButton(text=small_caps_label("Start"), callback_data="allsettings:start")],
+        [InlineKeyboardButton(text=small_caps_label("Chats"), callback_data="allsettings:chats")],
     ]
     if include_back:
         rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data="allsettings:back")])
@@ -927,6 +930,16 @@ async def all_settings_navigation(call: CallbackQuery):
         await edit_panel(call.message, body, settings_keyboard("allsettings:home"))
     elif action == "start":
         await show_start_settings(call.message, back_callback="allsettings:home")
+    elif action == "chats":
+        items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
+        home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"})
+        page = (home_state or {}).get("page", 0)
+        await edit_panel(call.message, await home_text(), main_keyboard(items, page, "allsettings:home"))
+        await ui_state.update_one(
+            {"_id": f"home:{call.message.chat.id}"},
+            {"$set": {"message_id": call.message.message_id, "page": page}},
+            upsert=True,
+        )
     elif action == "home":
         await edit_panel(call.message, await all_settings_body(), all_settings_keyboard(include_back=False))
         await ui_state.update_one({"_id": f"settings:{call.message.chat.id}"}, {"$set": {"settings_root": True}}, upsert=True)
@@ -1155,7 +1168,7 @@ async def show_start_about(call: CallbackQuery):
     # About is code-defined and always replaces the current Start message.
     body = render_about(await get_bot_info())
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="start:back")]
+        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="start:back")]
     ])
     try:
         if call.message.photo or call.message.animation or call.message.document:
@@ -1213,7 +1226,9 @@ async def home_page_navigation(call: CallbackQuery):
     total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
     page = min(page, total_pages - 1)
     await call.answer()
-    await edit_panel(call.message, await home_text(), main_keyboard(items, page))
+    settings_state = await ui_state.find_one({"_id": f"settings:{call.message.chat.id}"})
+    back_callback = "allsettings:home" if settings_state and settings_state.get("settings_root") else None
+    await edit_panel(call.message, await home_text(), main_keyboard(items, page, back_callback))
     await ui_state.update_one(
         {"_id": f"home:{call.message.chat.id}"},
         {"$set": {"message_id": call.message.message_id, "page": page}},
