@@ -580,8 +580,8 @@ async def edit_panel(message: Message, body: str, markup=None):
 
 async def show_settings(message: Message, back_callback=None):
     body = (
-        "<b><u>LINKS POST</u></b>\n\n"
-        "<i>Edit caption, media, and button using the buttons below.</i>"
+        "<b><i>LINKS POST</i></b>\n\n"
+        "<i>Edit caption, media, and button using the buttons below:</i>"
     )
     await edit_panel(message, body, settings_keyboard(back_callback))
     await ui_state.update_one({"_id": f"settings:{message.chat.id}"},
@@ -693,8 +693,8 @@ async def send_fresh_link(message: Message, chat_doc):
             except TelegramAPIError:
                 log.exception("Could not revoke an undelivered invite")
         await message.answer(
-            "I couldn't create or send the invite. Please check that I'm an administrator "
-            "with permission to invite users in that chat."
+            "<i>I couldn't create or send the invite. Please check that I'm an administrator "
+            "with permission to invite users in that chat.</i>"
         )
     except Exception:
         log.exception("Unexpected link delivery error")
@@ -703,7 +703,7 @@ async def send_fresh_link(message: Message, chat_doc):
                 await BOT.revoke_chat_invite_link(chat_doc["chat_id"], invite.invite_link)
             except TelegramAPIError:
                 log.exception("Could not revoke an undelivered invite")
-        await message.answer("Something went wrong while creating your link. Please try again later.")
+        await message.answer("<i>Something went wrong while creating your link. Please try again later.</i>")
 
 
 @dp.message(CommandStart())
@@ -923,7 +923,7 @@ async def all_settings_navigation(call: CallbackQuery):
     await clear_owner_prompt(call.from_user.id)
     await call.answer()
     if action == "links":
-        body = "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the options below.</i>"
+        body = "<b><i>LINKS POST</i></b>\n\n<i>Edit caption, media, and button using the options below.</i>"
         await edit_panel(call.message, body, settings_keyboard("allsettings:home"))
     elif action == "start":
         await show_start_settings(call.message, back_callback="allsettings:home")
@@ -1347,7 +1347,7 @@ async def restore_picker_panel(state, notice=None):
     if notice:
         await BOT.send_message(state["panel_chat_id"], notice, reply_markup=ReplyKeyboardRemove())
     else:
-        await BOT.send_message(state["panel_chat_id"], "Selection closed.", reply_markup=ReplyKeyboardRemove())
+        await BOT.send_message(state["panel_chat_id"], "<i>Selection closed.</i>", reply_markup=ReplyKeyboardRemove())
 
 
 @dp.message(F.text == "Back")
