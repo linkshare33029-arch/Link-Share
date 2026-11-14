@@ -419,7 +419,6 @@ def main_keyboard(items, page=0, back_callback=None):
     rows.append([InlineKeyboardButton(text="✚ " + small_caps_label("Add"), callback_data="add")])
     if back_callback:
         rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data=back_callback)])
-    rows.append([InlineKeyboardButton(text=small_caps_label("Links Post"), callback_data="settings")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -472,7 +471,7 @@ def invalidate_config_cache():
 
 
 async def home_text():
-    return ("<b><u>ROTATION LINKS CHATS</u></b>\n\n"
+    return ("<b><u>CHATS</u></b>\n\n"
             "<i>Select any chat for links delivery. A new link will be used every time to avoid spammers.</i>")
 
 
