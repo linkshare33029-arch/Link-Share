@@ -962,7 +962,7 @@ async def set_command(message: Message):
     await cancel_broadcast(message.from_user.id, message.chat.id)
     old_panel_ids = await clear_owner_panels(message.chat.id, message.from_user.id)
     sent = await message.answer(
-        "<b><u>LINKS POST</u></b>\n\n"
+        "<b><i>LINKS POST</i></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below:</i>",
         reply_markup=settings_keyboard(),
     )
@@ -1724,7 +1724,7 @@ async def owner_input(message: Message):
             )
         else:
             await BOT.edit_message_text(
-                "<b><u>LINKS POST</u></b>\n\n<i>Edit caption, media, and button using the buttons below:</i>",
+                "<b><i>LINKS POST</i></b>\n\n<i>Edit caption, media, and button using the buttons below:</i>",
                 chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"],
                 reply_markup=settings_keyboard(),
             )
