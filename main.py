@@ -1365,7 +1365,7 @@ async def restore_picker_panel(state, notice=None):
         await BOT.send_message(state["panel_chat_id"], "<i>Selection closed.</i>", reply_markup=ReplyKeyboardRemove())
 
 
-@dp.message(F.text == "Back")
+@dp.message(F.text == "❮❮ ʙᴀᴄᴋ")
 async def picker_back(message: Message):
     if not message.from_user or not is_owner(message.from_user.id):
         return
