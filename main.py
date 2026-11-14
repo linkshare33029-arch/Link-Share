@@ -578,7 +578,7 @@ async def edit_panel(message: Message, body: str, markup=None):
             log.warning("Panel edit failed: %s", exc)
 
 
-async def show_settings(message: Message, back_callback="home"):
+async def show_settings(message: Message, back_callback=None):
     body = (
         "<b><u>LINKS POST</u></b>\n\n"
         "<i>Edit caption, media, and button using the buttons below.</i>"
@@ -1487,12 +1487,16 @@ async def settings_callback(call: CallbackQuery):
         await call.answer("Not allowed", show_alert=True)
         return
     await clear_owner_prompt(call.from_user.id)
-    state = await ui_state.find_one({"_id": f"settings:{call.message.chat.id}"})
-    await call.answer()
-    await show_settings(
-        call.message,
-        back_callback="allsettings:home" if state and state.get("settings_root") else "home",
+    state, home_state = await asyncio.gather(
+        ui_state.find_one({"_id": f"settings:{call.message.chat.id}"}),
+        ui_state.find_one({"_id": f"home:{call.message.chat.id}"}),
     )
+    back_callback = (
+        "allsettings:home" if state and state.get("settings_root")
+        else "home" if home_state else None
+    )
+    await call.answer()
+    await show_settings(call.message, back_callback=back_callback)
 
 
 @dp.callback_query(F.data == "cfg:default")
@@ -1502,8 +1506,16 @@ async def cfg_default(call: CallbackQuery):
         return
     await settings.delete_one({"_id": "post"})
     invalidate_config_cache()
+    state, home_state = await asyncio.gather(
+        ui_state.find_one({"_id": f"settings:{call.message.chat.id}"}),
+        ui_state.find_one({"_id": f"home:{call.message.chat.id}"}),
+    )
+    back_callback = (
+        "allsettings:home" if state and state.get("settings_root")
+        else "home" if home_state else None
+    )
     await call.answer("✨ ✅ Successfully reset all to defaults")
-    await show_settings(call.message)
+    await show_settings(call.message, back_callback=back_callback)
 
 
 @dp.callback_query(F.data.in_({"cfg:media", "cfg:caption", "cfg:button"}))
