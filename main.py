@@ -446,7 +446,7 @@ def settings_keyboard(back_callback=None):
 def detail_keyboard(code):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=small_caps_label("Replace Chat"), callback_data=f"replace:{code}")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data="home")],
+        [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="home")],
     ])
 
 
