@@ -429,14 +429,16 @@ def add_keyboard():
     ])
 
 
-def settings_keyboard(back_callback="home"):
-    return InlineKeyboardMarkup(inline_keyboard=[
+def settings_keyboard(back_callback=None):
+    rows = [
         [InlineKeyboardButton(text="ᴅᴇꜰᴀᴜʟᴛ", callback_data="cfg:default"),
          InlineKeyboardButton(text="ᴍᴇᴅɪᴀ", callback_data="cfg:media")],
         [InlineKeyboardButton(text="ᴄᴀᴘᴛɪᴏɴ", callback_data="cfg:caption"),
          InlineKeyboardButton(text="ʙᴜᴛᴛᴏɴ", callback_data="cfg:button")],
-        [InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)],
-    ])
+    ]
+    if back_callback:
+        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def detail_keyboard(code):
