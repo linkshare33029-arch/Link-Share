@@ -992,6 +992,8 @@ async def start_settings_callback(call: CallbackQuery):
         return
     action = call.data.split(":", 1)[1]
     config = await get_start_config()
+    nav_state = await ui_state.find_one({"_id": f"settings:{call.message.chat.id}"})
+    back_callback = "allsettings:home" if nav_state and nav_state.get("settings_root") else None
     if action != "cancel":
         await clear_owner_prompt(call.from_user.id)
 
@@ -1006,7 +1008,7 @@ async def start_settings_callback(call: CallbackQuery):
         elif pending and pending.get("action") == "start_media":
             body, markup = "<b><u>MEDIA</u></b>\n\n<i>Include an image or GIF with your start message.</i>", start_submenu_keyboard("media", config)
         else:
-            body, markup = start_settings_body(config), start_settings_keyboard(config)
+            body, markup = start_settings_body(config), start_settings_keyboard(config, back_callback)
         if pending:
             await BOT.edit_message_text(body, chat_id=pending["panel_chat_id"], message_id=pending["panel_message_id"], reply_markup=markup)
         return
@@ -1014,7 +1016,7 @@ async def start_settings_callback(call: CallbackQuery):
     if action in {"home", "close"}:
         await clear_owner_prompt(call.from_user.id)
         await call.answer()
-        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config, back_callback))
         return
 
     if action == "about_toggle":
@@ -1026,7 +1028,7 @@ async def start_settings_callback(call: CallbackQuery):
             await settings.update_one({"_id": START_CONFIG_ID}, {"$set": {"about_enabled": False}}, upsert=True)
         config = await get_start_config()
         await call.answer("About enabled" if enabled else "About disabled")
-        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config))
+        await edit_panel(call.message, start_settings_body(config), start_settings_keyboard(config, back_callback))
         return
 
     if action == "buttons":
