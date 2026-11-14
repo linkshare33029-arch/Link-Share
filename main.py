@@ -861,7 +861,7 @@ def all_settings_keyboard(include_back=False):
         [InlineKeyboardButton(text=small_caps_label("Chats"), callback_data="allsettings:chats")],
     ]
     if include_back:
-        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data="allsettings:back")])
+        rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="allsettings:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1277,7 +1277,7 @@ async def add_menu(call: CallbackQuery):
                     request_title=True,
                     request_username=True,
                 )),
-            ], [KeyboardButton(text=small_caps_label("Back"))]],
+            ], [KeyboardButton(text="❮❮ " + small_caps_label("Back"))]],
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
@@ -1321,7 +1321,7 @@ async def replace_chat_menu(call: CallbackQuery):
                     request_id=secrets.randbelow(2_000_000_000) + 1,
                     chat_is_channel=False, request_title=True, request_username=True,
                 )),
-            ], [KeyboardButton(text=small_caps_label("Back"))]],
+            ], [KeyboardButton(text="❮❮ " + small_caps_label("Back"))]],
             resize_keyboard=True,
             one_time_keyboard=True,
         ),
