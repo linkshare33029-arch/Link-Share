@@ -439,7 +439,7 @@ def settings_keyboard(back_callback=None):
          InlineKeyboardButton(text=small_caps_label("Button"), callback_data="cfg:button")],
     ]
     if back_callback:
-        rows.append([InlineKeyboardButton(text=small_caps_label("Back"), callback_data=back_callback)])
+        rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
