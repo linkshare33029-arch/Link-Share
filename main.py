@@ -16,7 +16,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
-    BotCommand, BotCommandScopeChat, ChatAdministratorRights, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup,
+    BotCommand, BotCommandScopeChat, ChatAdministratorRights, CallbackQuery, ChatMemberUpdated, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, KeyboardButtonRequestChat, LinkPreviewOptions, Message, ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -471,8 +471,19 @@ def invalidate_config_cache():
 
 
 async def home_text():
-    return ("<b><u>CHATS</u></b>\n\n"
-            "<i>Select any chat for links delivery. A new link will be used every time to avoid spammers.</i>")
+    return ("<b><u>ADDED CHATS</u></b>\n\n"
+            "<i>Select any chat for links delivery. A fresh invite link will be created every time.</i>")
+
+
+async def chats_root_body():
+    return "<b><u>CHATS</u></b>\n\n<i>Manage your added chats.</i>"
+
+
+def chats_root_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=small_caps_label("Added Chats"), callback_data="allsettings:addedchats")],
+        [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="allsettings:home")],
+    ])
 
 
 async def clear_owner_panels(chat_id: int, owner_id: int):
@@ -553,7 +564,8 @@ async def render_home(message: Message, edit_existing=False):
     body = await home_text()
     panel = await ui_state.find_one({"_id": f"home:{message.chat.id}"})
     page = (panel or {}).get("page", 0)
-    markup = main_keyboard(items, page)
+    back_callback = (panel or {}).get("back_callback")
+    markup = main_keyboard(items, page, back_callback)
     target_id = message.message_id if edit_existing else (panel or {}).get("message_id")
     if target_id:
         try:
@@ -930,13 +942,20 @@ async def all_settings_navigation(call: CallbackQuery):
     elif action == "start":
         await show_start_settings(call.message, back_callback="allsettings:home")
     elif action == "chats":
+        await edit_panel(call.message, await chats_root_body(), chats_root_keyboard())
+        await ui_state.delete_one({"_id": f"home:{call.message.chat.id}"})
+    elif action == "addedchats":
         items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
-        home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"})
-        page = (home_state or {}).get("page", 0)
-        await edit_panel(call.message, await home_text(), main_keyboard(items, page, "allsettings:home"))
+        home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"}) or {}
+        page = home_state.get("page", 0)
+        await edit_panel(call.message, await home_text(), main_keyboard(items, page, "allsettings:chats"))
         await ui_state.update_one(
             {"_id": f"home:{call.message.chat.id}"},
-            {"$set": {"message_id": call.message.message_id, "page": page}},
+            {"$set": {
+                "message_id": call.message.message_id,
+                "page": page,
+                "back_callback": "allsettings:chats",
+            }},
             upsert=True,
         )
     elif action == "home":
@@ -1260,12 +1279,21 @@ async def home_page_navigation(call: CallbackQuery):
     total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
     page = min(page, total_pages - 1)
     await call.answer()
-    settings_state = await ui_state.find_one({"_id": f"settings:{call.message.chat.id}"})
-    back_callback = "allsettings:home" if settings_state and settings_state.get("settings_root") else None
+    settings_state, home_state = await asyncio.gather(
+        ui_state.find_one({"_id": f"settings:{call.message.chat.id}"}),
+        ui_state.find_one({"_id": f"home:{call.message.chat.id}"}),
+    )
+    back_callback = (home_state or {}).get("back_callback")
+    if not back_callback and settings_state and settings_state.get("settings_root"):
+        back_callback = "allsettings:home"
     await edit_panel(call.message, await home_text(), main_keyboard(items, page, back_callback))
     await ui_state.update_one(
         {"_id": f"home:{call.message.chat.id}"},
-        {"$set": {"message_id": call.message.message_id, "page": page}},
+        {"$set": {
+            "message_id": call.message.message_id,
+            "page": page,
+            "back_callback": back_callback,
+        }},
         upsert=True,
     )
 
@@ -1322,7 +1350,8 @@ async def add_menu(call: CallbackQuery):
         {"$set": {"prompt_message_id": prompt.message_id,
                   "panel_chat_id": call.message.chat.id,
                   "panel_message_id": call.message.message_id,
-                  "home_page": home_state.get("page", 0)}},
+                  "home_page": home_state.get("page", 0),
+                  "back_callback": home_state.get("back_callback")}},
         upsert=True,
     )
 
@@ -1370,12 +1399,13 @@ async def replace_chat_menu(call: CallbackQuery):
             "panel_chat_id": call.message.chat.id,
             "panel_message_id": call.message.message_id,
             "home_page": home_state.get("page", 0),
+            "back_callback": home_state.get("back_callback"),
         }},
         upsert=True,
     )
 
 
-async def restore_picker_panel(state, notice=None):
+async def restore_picker_panel(state, notice=None, copy_link=None):
     try:
         await BOT.delete_message(state["panel_chat_id"], state["prompt_message_id"])
     except (TelegramAPIError, KeyError):
@@ -1388,12 +1418,24 @@ async def restore_picker_panel(state, notice=None):
             reply_markup=main_keyboard(
                 await chats.find({"active": True}).sort("created_at", 1).to_list(length=None),
                 state.get("home_page", 0),
+                state.get("back_callback"),
             ),
         )
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
-            log.warning("Could not restore home panel after chat selection: %s", exc)
-    if notice:
+            log.warning("Could not restore Added Chats panel after chat selection: %s", exc)
+    if copy_link:
+        await BOT.send_message(
+            state["panel_chat_id"],
+            f"<code>{html.escape(copy_link)}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text=small_caps_label("Copy"),
+                    copy_text=CopyTextButton(text=copy_link),
+                )
+            ]]),
+        )
+    elif notice:
         await BOT.send_message(state["panel_chat_id"], notice, reply_markup=ReplyKeyboardRemove())
     else:
         await BOT.send_message(state["panel_chat_id"], "<i>Selection closed.</i>", reply_markup=ReplyKeyboardRemove())
@@ -1441,6 +1483,7 @@ async def chat_shared(message: Message):
             await restore_picker_panel(state, "Please grant the bot permission to invite users, then select the chat again.")
             return
         action = state.get("action", "add")
+        link_code = None
         title = chat.title or getattr(shared, "title", None) or str(shared.chat_id)
         username = getattr(chat, "username", None)
         if action == "replace":
@@ -1481,7 +1524,7 @@ async def chat_shared(message: Message):
                     "replaced_at": datetime.now(timezone.utc),
                 }},
             )
-            notice = "<i>✨ Chat replaced successfully. The existing deep link remains unchanged and now points to the new chat.</i>"
+            link_code = target["code"]
         else:
             existing = await chats.find_one({"chat_id": shared.chat_id, "active": True})
             if existing:
@@ -1500,9 +1543,10 @@ async def chat_shared(message: Message):
                 "active": True,
                 "created_at": datetime.now(timezone.utc),
             })
-            notice = "<i>✨ Chat added successfully.</i>"
+            link_code = code
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
-        await restore_picker_panel(state, notice)
+        deep_link = f"https://t.me/{current_bot_username.get()}?start={link_code}"
+        await restore_picker_panel(state, copy_link=deep_link)
     except Exception as exc:
         log.exception("Unable to save selected chat")
         await ui_state.delete_one({"_id": f"picker:{message.from_user.id}"})
