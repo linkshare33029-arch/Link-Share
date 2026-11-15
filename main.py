@@ -545,7 +545,7 @@ async def sync_chat_titles():
 async def refresh_home_panels():
     items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
     async for panel in ui_state.find({"_id": {"$regex": "^home:"}}):
-        markup = main_keyboard(items, panel.get("page", 0))
+        markup = main_keyboard(items, panel.get("page", 0), panel.get("back_callback"))
         try:
             chat_id = int(panel["_id"].split(":", 1)[1])
             await BOT.edit_message_text(
