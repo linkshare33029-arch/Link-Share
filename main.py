@@ -945,7 +945,11 @@ async def all_settings_navigation(call: CallbackQuery):
         await show_start_settings(call.message, back_callback="allsettings:home")
     elif action == "chats":
         await edit_panel(call.message, await chats_root_body(), chats_root_keyboard())
-        await ui_state.delete_one({"_id": f"home:{call.message.chat.id}"})
+        await ui_state.update_one(
+            {"_id": f"home:{call.message.chat.id}"},
+            {"$set": {"message_id": call.message.message_id, "page": 0, "back_callback": "allsettings:chatsroot"}},
+            upsert=True,
+        )
     elif action == "addedchats":
         items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
         home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"}) or {}
@@ -1413,16 +1417,22 @@ async def restore_picker_panel(state, notice=None, copy_link=None):
     except (TelegramAPIError, KeyError):
         pass
     try:
-        await BOT.edit_message_text(
-            await home_text(),
-            chat_id=state["panel_chat_id"],
-            message_id=state["panel_message_id"],
-            reply_markup=main_keyboard(
+        if state.get("back_callback") == "allsettings:chatsroot":
+            restore_body = await chats_root_body()
+            restore_markup = chats_root_keyboard()
+        else:
+            restore_body = await home_text()
+            restore_markup = main_keyboard(
                 await chats.find({"active": True}).sort("created_at", 1).to_list(length=None),
                 state.get("home_page", 0),
                 state.get("back_callback"),
                 show_add=state.get("back_callback") != "allsettings:chats",
-            ),
+            )
+        await BOT.edit_message_text(
+            restore_body,
+            chat_id=state["panel_chat_id"],
+            message_id=state["panel_message_id"],
+            reply_markup=restore_markup,
         )
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
