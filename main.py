@@ -389,7 +389,7 @@ def small_caps(value: str) -> str:
 HOME_PAGE_SIZE = 20
 
 
-def main_keyboard(items, page=0, back_callback=None):
+def main_keyboard(items, page=0, back_callback=None, show_add=True):
     total_pages = max(1, (len(items) + HOME_PAGE_SIZE - 1) // HOME_PAGE_SIZE)
     page = max(0, min(int(page), total_pages - 1))
     start = page * HOME_PAGE_SIZE
@@ -416,7 +416,8 @@ def main_keyboard(items, page=0, back_callback=None):
                 text=small_caps_label("Next"), callback_data=f"home:page:{page + 1}"
             ))
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="✚ " + small_caps_label("Add"), callback_data="add")])
+    if show_add:
+        rows.append([InlineKeyboardButton(text="✚ " + small_caps_label("Add"), callback_data="add")])
     if back_callback:
         rows.append([InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -481,7 +482,8 @@ async def chats_root_body():
 
 def chats_root_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=small_caps_label("Added Chats"), callback_data="allsettings:addedchats")],
+        [InlineKeyboardButton(text=small_caps_label("Added Chats"), callback_data="allsettings:addedchats"),
+         InlineKeyboardButton(text="✚ " + small_caps_label("Add"), callback_data="add")],
         [InlineKeyboardButton(text="❮❮ " + small_caps_label("Back"), callback_data="allsettings:home")],
     ])
 
@@ -948,7 +950,7 @@ async def all_settings_navigation(call: CallbackQuery):
         items = await chats.find({"active": True}).sort("created_at", 1).to_list(length=None)
         home_state = await ui_state.find_one({"_id": f"home:{call.message.chat.id}"}) or {}
         page = home_state.get("page", 0)
-        await edit_panel(call.message, await home_text(), main_keyboard(items, page, "allsettings:chats"))
+        await edit_panel(call.message, await home_text(), main_keyboard(items, page, "allsettings:chats", show_add=False))
         await ui_state.update_one(
             {"_id": f"home:{call.message.chat.id}"},
             {"$set": {
@@ -1286,7 +1288,7 @@ async def home_page_navigation(call: CallbackQuery):
     back_callback = (home_state or {}).get("back_callback")
     if not back_callback and settings_state and settings_state.get("settings_root"):
         back_callback = "allsettings:home"
-    await edit_panel(call.message, await home_text(), main_keyboard(items, page, back_callback))
+    await edit_panel(call.message, await home_text(), main_keyboard(items, page, back_callback, show_add=back_callback != "allsettings:chats"))
     await ui_state.update_one(
         {"_id": f"home:{call.message.chat.id}"},
         {"$set": {
@@ -1419,6 +1421,7 @@ async def restore_picker_panel(state, notice=None, copy_link=None):
                 await chats.find({"active": True}).sort("created_at", 1).to_list(length=None),
                 state.get("home_page", 0),
                 state.get("back_callback"),
+                show_add=state.get("back_callback") != "allsettings:chats",
             ),
         )
     except TelegramBadRequest as exc:
