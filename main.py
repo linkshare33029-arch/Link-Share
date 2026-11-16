@@ -1440,7 +1440,7 @@ async def restore_picker_panel(state, notice=None, copy_link=None):
     if copy_link:
         await BOT.send_message(
             state["panel_chat_id"],
-            f"<code>{html.escape(copy_link)}</code>",
+            copy_link,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(
                     text=small_caps_label("Copy"),
@@ -1581,7 +1581,7 @@ async def chat_detail(call: CallbackQuery):
     deep_link = f"https://t.me/{current_bot_username.get()}?start={code}"
     body = (
         f"<i>Chat Name:</i> {html.escape(item['title'])}\n\n"
-        f"<i>Deeplink:</i> <code>{html.escape(deep_link)}</code>"
+        f"<i>Deeplink:</i> {deep_link}"
     )
     await call.answer()
     await edit_panel(call.message, body, detail_keyboard(code))
