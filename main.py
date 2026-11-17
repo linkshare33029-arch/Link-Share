@@ -629,11 +629,10 @@ async def send_fresh_link(message: Message, chat_doc):
         )
         live_username = getattr(live_chat, "username", None)
         live_private = not bool(live_username)
-        await chats.update_one({"_id": chat_doc["_id"]}, {"$set": {
-            "title": live_chat.title or chat_doc.get("title"),
-            "username": live_username,
-            "is_private": live_private,
-        }})
+        # The live Telegram metadata is used for this invite, but do not write it
+        # back to MongoDB on every tap. The invite record below stores the title;
+        # avoiding this per-request update keeps the hot path to one DB read and
+        # one DB insert while still re-checking public/private status on Telegram.
         chat_doc["is_private"] = live_private
         chat_doc["username"] = live_username
         chat_doc["title"] = live_chat.title or chat_doc.get("title")
