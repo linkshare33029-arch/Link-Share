@@ -199,9 +199,12 @@ def start_config_keyboard(config):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 async def send_start_page(message: Message):
+    # Telegram protected content blocks forwarding/saving for non-owners.
+    # Owners configured through Render OWNER_ID/OWNER_IDS remain unrestricted.
+    protect_content = bool(message.from_user and not is_owner(message.from_user.id))
     config = await get_start_config()
     if not config.get("enabled", True):
-        await message.answer("This page is currently unavailable.")
+        await message.answer("This page is currently unavailable.", protect_content=protect_content)
         return
     body = render_start_text(config, await get_bot_info(), message.from_user)
     markup = start_config_keyboard(config)
@@ -209,23 +212,24 @@ async def send_start_page(message: Message):
     try:
         if media_id and media_type == "photo":
             if telegram_html_length(body) <= 1024:
-                await message.answer_photo(media_id, caption=body, reply_markup=markup)
+                await message.answer_photo(media_id, caption=body, reply_markup=markup, protect_content=protect_content)
             else:
-                await message.answer_photo(media_id, reply_markup=markup)
-                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await message.answer_photo(media_id, reply_markup=markup, protect_content=protect_content)
+                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True), protect_content=protect_content)
         elif media_id and media_type == "animation":
             if telegram_html_length(body) <= 1024:
-                await message.answer_animation(media_id, caption=body, reply_markup=markup)
+                await message.answer_animation(media_id, caption=body, reply_markup=markup, protect_content=protect_content)
             else:
-                await message.answer_animation(media_id, reply_markup=markup)
+                await message.answer_animation(media_id, reply_markup=markup, protect_content=protect_content)
                 await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
-            await message.answer(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await message.answer(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True), protect_content=protect_content)
     except TelegramAPIError:
         log.exception("Could not send configured Start page; using text fallback")
         await message.answer(
             body, reply_markup=markup,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
+            protect_content=protect_content,
         )
 
 def small_caps_label(value: str) -> str:
@@ -620,6 +624,8 @@ def request_chat_keyboard(kind: str):
 
 
 async def send_fresh_link(message: Message, chat_doc):
+    # Protect generated invite messages for regular users, but not configured owners.
+    protect_content = bool(message.from_user and not is_owner(message.from_user.id))
     invite = None
     try:
         # Fetch the current chat metadata and cached post settings concurrently.
@@ -670,6 +676,7 @@ async def send_fresh_link(message: Message, chat_doc):
         kwargs = {
             "caption": caption,
             "reply_markup": markup,
+            "protect_content": protect_content,
         }
         if entities:
             kwargs["caption_entities"] = entities
@@ -679,9 +686,9 @@ async def send_fresh_link(message: Message, chat_doc):
         if media_id and media_type in {"photo", "animation"} and telegram_text_length(caption) > 1024:
             # Recover safely from legacy/externally edited settings that exceed Telegram's media-caption limit.
             if media_type == "photo":
-                await message.answer_photo(media_id)
+                await message.answer_photo(media_id, protect_content=protect_content)
             else:
-                await message.answer_animation(media_id)
+                await message.answer_animation(media_id, protect_content=protect_content)
             await message.answer(
                 caption,
                 entities=entities,
