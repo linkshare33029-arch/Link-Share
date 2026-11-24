@@ -221,7 +221,7 @@ async def send_start_page(message: Message):
                 await message.answer_animation(media_id, caption=body, reply_markup=markup, protect_content=protect_content)
             else:
                 await message.answer_animation(media_id, reply_markup=markup, protect_content=protect_content)
-                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await message.answer(body, link_preview_options=LinkPreviewOptions(is_disabled=True), protect_content=protect_content)
         else:
             await message.answer(body, reply_markup=markup, link_preview_options=LinkPreviewOptions(is_disabled=True), protect_content=protect_content)
     except TelegramAPIError:
@@ -694,6 +694,7 @@ async def send_fresh_link(message: Message, chat_doc):
                 entities=entities,
                 parse_mode=None if entities else ParseMode.HTML,
                 reply_markup=markup,
+                protect_content=protect_content,
             )
         elif media_id and media_type == "photo":
             await message.answer_photo(media_id, **kwargs)
