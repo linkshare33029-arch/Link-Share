@@ -706,6 +706,7 @@ async def send_fresh_link(message: Message, chat_doc):
                 entities=entities,
                 parse_mode=None if entities else ParseMode.HTML,
                 reply_markup=markup,
+                protect_content=protect_content,
             )
     except (TelegramBadRequest, TelegramForbiddenError) as exc:
         log.exception("Invite creation or link-post delivery failed for chat %s", chat_doc.get("chat_id"))
@@ -716,7 +717,8 @@ async def send_fresh_link(message: Message, chat_doc):
                 log.exception("Could not revoke an undelivered invite")
         await message.answer(
             "<i>I couldn't create or send the invite. Please check that I'm an administrator "
-            "with permission to invite users in that chat.</i>"
+            "with permission to invite users in that chat.</i>",
+            protect_content=protect_content,
         )
     except Exception:
         log.exception("Unexpected link delivery error")
@@ -725,7 +727,10 @@ async def send_fresh_link(message: Message, chat_doc):
                 await BOT.revoke_chat_invite_link(chat_doc["chat_id"], invite.invite_link)
             except TelegramAPIError:
                 log.exception("Could not revoke an undelivered invite")
-        await message.answer("<i>Something went wrong while creating your link. Please try again later.</i>")
+        await message.answer(
+            "<i>Something went wrong while creating your link. Please try again later.</i>",
+            protect_content=protect_content,
+        )
 
 
 @dp.message(CommandStart())
@@ -792,7 +797,11 @@ async def run_broadcast(source_message: Message, chat_id: int, pin: bool):
     inline_markup = source_message.reply_markup if isinstance(source_message.reply_markup, InlineKeyboardMarkup) else None
     for user_id in recipient_ids:
         try:
-            copied = await source_message.copy_to(chat_id=user_id, reply_markup=inline_markup)
+            copied = await source_message.copy_to(
+                chat_id=user_id,
+                reply_markup=inline_markup,
+                protect_content=not is_owner(user_id),
+            )
             delivered += 1
             if pin:
                 try:
