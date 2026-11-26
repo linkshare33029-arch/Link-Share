@@ -1457,6 +1457,7 @@ async def restore_picker_panel(state, notice=None, copy_link=None):
         await BOT.send_message(
             state["panel_chat_id"],
             copy_link,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(
                     text=small_caps_label("Copy"),
